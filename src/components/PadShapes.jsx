@@ -138,6 +138,7 @@ mega_pad: {
       { cx: 417, cy: 274 },
     ],
   },
+}
 export function PadShape({
   shapeId = 'moon_rise',
   lengthInches,
