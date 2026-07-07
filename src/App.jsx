@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react'
+import { PadShape } from './components/PadShapes'
 
 const WHATSAPP = '6583397556'
+
+const PLACEHOLDER_COLORS = [
+  '#f2c4ce', '#c4d9f2', '#c4f2d0', '#f2e4c4',
+  '#d9c4f2', '#f2c4e4', '#c4f2f2', '#f2d9c4',
+  '#e4f2c4', '#f2c4c4',
+]
 
 export default function App() {
   const [config, setConfig] = useState(null)
@@ -49,8 +56,9 @@ function Header({ config, onNav }) {
 }
 
 function Landing({ config, onNav }) {
+  const [activeShape, setActiveShape] = useState('moon_rise')
+  const shapes = config.shapeOptions || []
   const categories = config.settings.categories || []
-  const fabrics = config.fabricsTop.filter(f => !f.hidden).slice(0, 6)
 
   return (
     <main>
@@ -82,15 +90,47 @@ function Landing({ config, onNav }) {
         </div>
       </section>
 
-      {/* Fabric teaser */}
+      {/* Shape preview */}
+      <section style={styles.section}>
+        <div style={styles.sectionLabel}>PAD SHAPES</div>
+        <h2 style={styles.sectionTitle}>Choose your silhouette</h2>
+        <div style={styles.shapePreviewBox}>
+          <PadShape
+            shapeId={activeShape}
+            lengthInches={10}
+            backingColor='#e8c4d0'
+            showSnaps={true}
+            width={160}
+          />
+        </div>
+        <div style={styles.shapePills}>
+          {shapes.map(s => (
+            <button
+              key={s.id}
+              style={{
+                ...styles.shapePill,
+                ...(activeShape === s.id ? styles.shapePillActive : {})
+              }}
+              onClick={() => setActiveShape(s.id)}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Fabric teaser — placeholders */}
       <section style={styles.section}>
         <div style={styles.sectionLabel}>BROWSE FABRICS</div>
         <h2 style={styles.sectionTitle}>195 prints to choose from</h2>
         <div style={styles.fabricGrid}>
-          {fabrics.map(f => (
-            <div key={f.id} style={styles.fabricCard} onClick={() => onNav('studio')}>
-              <img src={f.imageUrl} alt={f.name} style={styles.fabricImg} loading="lazy" />
-              <div style={styles.fabricLabel}>{f.category}</div>
+          {PLACEHOLDER_COLORS.slice(0, 6).map((color, i) => (
+            <div
+              key={i}
+              style={{ ...styles.fabricCard, background: color }}
+              onClick={() => onNav('studio')}
+            >
+              <div style={styles.fabricLabel}>{categories[i] || 'Fabric'}</div>
             </div>
           ))}
         </div>
@@ -191,6 +231,10 @@ const styles = {
   tipIcon: { fontSize: 22, flexShrink: 0 },
   tipTitle: { fontSize: 13, fontWeight: 600, color: c.rose, marginBottom: 4 },
   tipText: { fontSize: 12, color: c.muted, lineHeight: 1.6 },
+  shapePreviewBox: { display: 'flex', justifyContent: 'center', padding: '16px 0', background: c.white, borderRadius: 12, border: `1px solid ${c.border}`, marginBottom: 12 },
+  shapePills: { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  shapePill: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 20, padding: '6px 14px', fontSize: 12, cursor: 'pointer', color: c.muted },
+  shapePillActive: { background: c.rose, border: `1.5px solid ${c.rose}`, color: c.white },
   fabricGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 },
   fabricCard: { borderRadius: 10, overflow: 'hidden', cursor: 'pointer', position: 'relative', aspectRatio: '1' },
   fabricImg: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
