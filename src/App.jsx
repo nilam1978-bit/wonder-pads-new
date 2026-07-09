@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { PadShape } from './components/PadShapes'
+import DesignStudio from './components/DesignStudio'
 
 const WHATSAPP = '6583397556'
 
@@ -28,10 +29,14 @@ export default function App() {
 
   return (
     <div style={styles.app}>
-      <Header config={config} onNav={setPath} />
-      {path === 'home' && <Landing config={config} onNav={setPath} />}
-      {path === 'studio' && <ComingSoon title="Design Studio" onBack={() => setPath('home')} />}
-      {path === 'rts' && <ComingSoon title="Ready Stock" onBack={() => setPath('home')} />}
+      {path === 'studio'
+        ? <DesignStudio config={config} onBack={() => setPath('home')} />
+        : <>
+            <Header config={config} onNav={setPath} />
+            {path === 'home' && <Landing config={config} onNav={setPath} />}
+            {path === 'rts' && <ComingSoon title="Ready Stock" onBack={() => setPath('home')} />}
+          </>
+      }
     </div>
   )
 }
@@ -119,7 +124,7 @@ function Landing({ config, onNav }) {
         </div>
       </section>
 
-      {/* Fabric teaser — placeholders */}
+      {/* Fabric teaser */}
       <section style={styles.section}>
         <div style={styles.sectionLabel}>BROWSE FABRICS</div>
         <h2 style={styles.sectionTitle}>195 prints to choose from</h2>
@@ -237,7 +242,6 @@ const styles = {
   shapePillActive: { background: c.rose, border: `1.5px solid ${c.rose}`, color: c.white },
   fabricGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 },
   fabricCard: { borderRadius: 10, overflow: 'hidden', cursor: 'pointer', position: 'relative', aspectRatio: '1' },
-  fabricImg: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
   fabricLabel: { position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.35)', color: '#fff', fontSize: 9, padding: '3px 6px', textAlign: 'center' },
   sizeList: { display: 'flex', flexDirection: 'column', gap: 8 },
   sizeCard: { background: c.white, border: `1px solid ${c.border}`, borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 },
