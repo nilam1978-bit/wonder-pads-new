@@ -534,7 +534,8 @@ function Checkout({ basket, setBasket, onBack }) {
       </div>
 
       
-        href={`https://wa.me/6583397556?text=${buildWhatsAppMessage()}`}
+        <a 
+          href={`https://wa.me/6583397556?text=${buildWhatsAppMessage()}`}
         style={{
           ...styles.btnWhatsApp,
           opacity: name && phone ? 1 : 0.4,
