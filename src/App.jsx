@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { PadShape } from './components/PadShapes'
 import DesignStudio from './components/DesignStudio'
+import CareFAQ from './components/CareFAQ'
 
 const WHATSAPP = '6583397556'
 
@@ -28,11 +29,12 @@ export default function App() {
   )
 
   return (
-    <div style={styles.app}>
       {path === 'studio'
         ? <DesignStudio config={config} onBack={() => setPath('home')} />
+        : path === 'faq'
+        ? <CareFAQ onBack={() => setPath('home')} />
         : <>
-            <Header config={config} onNav={setPath} />
+            <Header config={config} onNav={set} />
             {path === 'home' && <Landing config={config} onNav={setPath} />}
             {path === 'rts' && <ComingSoon title="Ready Stock" onBack={() => setPath('home')} />}
           </>
@@ -175,6 +177,12 @@ function Landing({ config, onNav }) {
             </div>
           ))}
         </div>
+      </section>
+
+      <section style={{...styles.section, textAlign: 'center'}}>
+        <button style={styles.btnOutline} onClick={() => onNav('faq')}>
+          🌸 Care Tips & Common Questions
+        </button>
       </section>
 
       {/* Footer */}
