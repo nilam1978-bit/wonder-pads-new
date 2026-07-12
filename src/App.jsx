@@ -28,13 +28,14 @@ export default function App() {
     </div>
   )
 
-  return (
+ return (
+    <div style={styles.app}>
       {path === 'studio'
         ? <DesignStudio config={config} onBack={() => setPath('home')} />
         : path === 'faq'
         ? <CareFAQ onBack={() => setPath('home')} />
         : <>
-            <Header config={config} onNav={set} />
+            <Header config={config} onNav={setPath} />
             {path === 'home' && <Landing config={config} onNav={setPath} />}
             {path === 'rts' && <ComingSoon title="Ready Stock" onBack={() => setPath('home')} />}
           </>
