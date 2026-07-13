@@ -78,6 +78,8 @@ const STUDIO_CONFIG = {
       description: 'Overnight use, postpartum recovery, or anyone who prefers extra coverage.',
       tip: 'Maximum coverage and confidence for your heaviest moments.',
       priceBase: 15.00,
+      pricePerInch: true,
+      pricePerInchRate: 1.00,
       minLength: 15,
       maxLength: 20,
       backing: 'Black Softshell Fleece',
@@ -85,7 +87,8 @@ const STUDIO_CONFIG = {
       backingOptions: null,
       extraLayerPrice: 0,
       maxExtraLayers: 0,
-      shapes: ['mega_pad'],
+      shapes: ['mega_pad', 'sunglow', 'moon_rise', 'staple'],
+      shapeMaxLength: { moon_rise: 18, staple: 18 },
     },
   ],
 
@@ -134,7 +137,9 @@ export default function DesignStudio({ config, onBack }) {
   const sizeConfig = STUDIO_CONFIG.sizes.find(s => s.id === selectedSize)
 
   const totalPrice = sizeConfig
-    ? sizeConfig.priceBase
+    ? (sizeConfig.pricePerInch
+        ? (selectedLength || sizeConfig.minLength) * sizeConfig.pricePerInchRate
+        : sizeConfig.priceBase)
       + (extraLayers * sizeConfig.extraLayerPrice)
       + (selectedBacking === 'antipill' ? 1.00 : 0)
     : 0
@@ -153,6 +158,18 @@ export default function DesignStudio({ config, onBack }) {
   function handleFabricSelect(fabric) {
     setSelectedFabric(fabric)
     setStep('configure')
+  }
+
+  function handleLengthSelect(len) {
+    setSelectedLength(len)
+    const cap = sizeConfig?.shapeMaxLength?.[selectedShape]
+    if (cap && len > cap) {
+      const stillValid = sizeConfig.shapes.find(s => {
+        const shapeCap = sizeConfig.shapeMaxLength?.[s]
+        return !shapeCap || len <= shapeCap
+      })
+      if (stillValid) setSelectedShape(stillValid)
+    }
   }
 
   function handleAddToBasket() {
@@ -225,7 +242,9 @@ export default function DesignStudio({ config, onBack }) {
             >
               <div style={styles.sizeCardTop}>
                 <div style={styles.sizeCardName}>{size.emoji} {size.name}</div>
-                <div style={styles.sizeCardPrice}>from S${size.priceBase.toFixed(2)}</div>
+                <div style={styles.sizeCardPrice}>
+                  from S${(size.pricePerInch ? size.minLength * size.pricePerInchRate : size.priceBase).toFixed(2)}
+                </div>
               </div>
               <div style={styles.sizeCardRange}>{size.minLength}"–{size.maxLength}" · {size.shapes.length} shape{size.shapes.length > 1 ? 's' : ''}</div>
               <div style={styles.sizeCardDesc}>{size.description}</div>
@@ -317,7 +336,7 @@ export default function DesignStudio({ config, onBack }) {
                       ...styles.shapePill,
                       ...(selectedLength === len ? styles.shapePillActive : {})
                     }}
-                    onClick={() => setSelectedLength(len)}
+                    onClick={() => handleLengthSelect(len)}
                   >
                     {len}"
                   </button>
@@ -329,18 +348,24 @@ export default function DesignStudio({ config, onBack }) {
             <div style={styles.configSection}>
               <div style={styles.configLabel}>SHAPE</div>
               <div style={styles.shapePills}>
-                {sizeConfig.shapes.map(shapeId => (
-                  <button
-                    key={shapeId}
-                    style={{
-                      ...styles.shapePill,
-                      ...(selectedShape === shapeId ? styles.shapePillActive : {})
-                    }}
-                    onClick={() => setSelectedShape(shapeId)}
-                  >
-                    {SHAPE_NAMES[shapeId]}
-                  </button>
-                ))}
+                {sizeConfig.shapes.map(shapeId => {
+                  const cap = sizeConfig.shapeMaxLength?.[shapeId]
+                  const disabled = cap && selectedLength > cap
+                  return (
+                    <button
+                      key={shapeId}
+                      disabled={disabled}
+                      style={{
+                        ...styles.shapePill,
+                        ...(selectedShape === shapeId ? styles.shapePillActive : {}),
+                        ...(disabled ? styles.shapePillDisabled : {}),
+                      }}
+                      onClick={() => !disabled && setSelectedShape(shapeId)}
+                    >
+                      {SHAPE_NAMES[shapeId]}{disabled ? ` (max ${cap}")` : ''}
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
@@ -612,6 +637,7 @@ const styles = {
   shapePills: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   shapePill: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 20, padding: '6px 14px', fontSize: 12, cursor: 'pointer', color: c.muted },
   shapePillActive: { background: c.rose, border: `1.5px solid ${c.rose}`, color: c.white },
+  shapePillDisabled: { opacity: 0.35, cursor: 'not-allowed' },
   optionRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 8, padding: '10px 12px', marginBottom: 6, cursor: 'pointer' },
   optionRowActive: { border: `1.5px solid ${c.rose}`, background: c.roseLight },
   optionName: { fontSize: 13, color: c.text },
