@@ -133,6 +133,7 @@ export default function DesignStudio({ config, onBack }) {
   const [qty, setQty] = useState(1)
   const [activeCategory, setActiveCategory] = useState('All')
   const [basket, setBasket] = useState([])
+  const [cartOpen, setCartOpen] = useState(false)
 
   const sizeConfig = STUDIO_CONFIG.sizes.find(s => s.id === selectedSize)
 
@@ -198,17 +199,46 @@ export default function DesignStudio({ config, onBack }) {
     .filter(f => !f.hidden)
     .filter(f => activeCategory === 'All' || f.category === activeCategory)
 
+  // Group identical basket items together for the floating cart display
+  function groupKey(item) {
+    return [item.sizeName, item.length, item.shape, item.fabric?.id, item.extraLayers, item.backing].join('|')
+  }
+  const groupedBasket = Object.values(
+    basket.reduce((acc, item) => {
+      const key = groupKey(item)
+      if (!acc[key]) acc[key] = { ...item, qty: 0, ids: [] }
+      acc[key].qty += 1
+      acc[key].ids.push(item.id)
+      return acc
+    }, {})
+  )
+  const basketCount = basket.length
+  const basketTotal = basket.reduce((sum, item) => sum + item.price, 0)
+
+  function incrementGroup(group) {
+    const template = basket.find(item => item.id === group.ids[0])
+    setBasket([...basket, { ...template, id: Date.now() }])
+  }
+  function decrementGroup(group) {
+    if (group.ids.length <= 1) return removeGroup(group)
+    const idToRemove = group.ids[group.ids.length - 1]
+    setBasket(basket.filter(item => item.id !== idToRemove))
+  }
+  function removeGroup(group) {
+    setBasket(basket.filter(item => !group.ids.includes(item.id)))
+  }
+  function clearBasket() {
+    setBasket([])
+    setCartOpen(false)
+  }
+
   return (
     <div style={styles.container}>
       {/* Back button */}
       <div style={styles.topBar}>
         <button style={styles.backBtn} onClick={onBack}>← Back</button>
         <div style={styles.topTitle}>Design Studio</div>
-        {basket.length > 0 && (
-          <button style={styles.basketBtn} onClick={() => setStep('checkout')}>
-            🛒 {basket.length}
-          </button>
-        )}
+        <div style={{width: 40}} />
       </div>
 
       {/* Step indicator */}
@@ -457,7 +487,10 @@ export default function DesignStudio({ config, onBack }) {
 
       {/* Floating preview */}
       {selectedShape && selectedSize && step !== 'checkout' && (
-        <div style={styles.floatingPreview}>
+        <div style={{
+          ...styles.floatingPreview,
+          bottom: basketCount > 0 && !cartOpen ? 92 : 24,
+        }}>
           <PadShape
             shapeId={selectedShape}
             lengthInches={selectedLength || sizeConfig?.minLength}
@@ -469,6 +502,101 @@ export default function DesignStudio({ config, onBack }) {
             <div style={styles.floatingSize}>{sizeConfig?.name} {selectedLength}"</div>
             <div style={styles.floatingPrice}>S${totalPrice.toFixed(2)}</div>
           </div>
+        </div>
+      )}
+
+      {/* Floating live cart */}
+      {basketCount > 0 && step !== 'checkout' && (
+        <FloatingCart
+          groupedBasket={groupedBasket}
+          basketCount={basketCount}
+          basketTotal={basketTotal}
+          open={cartOpen}
+          setOpen={setCartOpen}
+          onIncrement={incrementGroup}
+          onDecrement={decrementGroup}
+          onRemove={removeGroup}
+          onClearAll={clearBasket}
+          onCheckout={() => { setCartOpen(false); setStep('checkout') }}
+        />
+      )}
+    </div>
+  )
+}
+
+function FloatingCart({ groupedBasket, basketCount, basketTotal, open, setOpen, onIncrement, onDecrement, onRemove, onClearAll, onCheckout }) {
+  return (
+    <div style={styles.cartWrap}>
+      {open && (
+        <div style={styles.cartPanel}>
+          <div style={styles.cartPanelHeader}>
+            <div>
+              <div style={styles.cartPanelTitle}>Custom Order Summary</div>
+              <div style={styles.cartPanelSub}>{basketCount} total cloth pad{basketCount > 1 ? 's' : ''}</div>
+            </div>
+            <button style={styles.cartClearBtn} onClick={onClearAll}>Clear All</button>
+          </div>
+
+          <div style={styles.cartItemsScroll}>
+            {groupedBasket.map(group => (
+              <div key={group.ids.join('-')} style={styles.cartItem}>
+                <div style={styles.cartItemLeft}>
+                  <div style={styles.cartItemName}>
+                    {group.sizeName} ({group.length}")
+                  </div>
+                  <div style={styles.cartItemDetail}>
+                    {group.shape} · Print {group.fabric?.id || '—'}
+                    {group.extraLayers > 0 && ` · +${group.extraLayers} layer${group.extraLayers > 1 ? 's' : ''}`}
+                  </div>
+                  <div style={styles.cartItemDetail}>
+                    Backing: {group.backing === 'organic' ? 'Organic Cotton' : group.backing === 'printed' ? 'Printed Cotton' : group.backing === 'antipill' ? 'Antipill Fleece' : group.backing}
+                  </div>
+                </div>
+                <div style={styles.cartItemRight}>
+                  <div style={styles.cartItemSubtotal}>S${(group.price * group.qty).toFixed(2)}</div>
+                  <div style={styles.cartQtyStepper}>
+                    <button style={styles.cartQtyBtn} onClick={() => onDecrement(group)}>−</button>
+                    <span style={styles.cartQtyCount}>{group.qty}</span>
+                    <button style={styles.cartQtyBtn} onClick={() => onIncrement(group)}>+</button>
+                  </div>
+                  <button style={styles.cartTrashBtn} onClick={() => onRemove(group)}>🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={styles.cartPanelFooter}>
+            <div style={styles.cartTotalRow}>
+              <span>Estimated Total</span>
+              <span style={styles.cartTotalAmount}>S${basketTotal.toFixed(2)}</span>
+            </div>
+            <div style={styles.cartFooterBtns}>
+              <button style={styles.btnOutline2} onClick={() => setOpen(false)}>Minimize</button>
+              <button style={styles.cartCheckoutBtn} onClick={onCheckout}>📩 Send My Order</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!open && (
+        <div style={styles.cartBar} onClick={() => setOpen(true)}>
+          <div style={styles.cartBarIcon}>🛍️</div>
+          <div style={styles.cartBarInfo}>
+            <div style={styles.cartBarLabel}>Custom Order Summary</div>
+            <div style={styles.cartBarSub}>{basketCount} pad{basketCount > 1 ? 's' : ''} · S${basketTotal.toFixed(2)}</div>
+          </div>
+          <button
+            style={styles.cartBarDetailsBtn}
+            onClick={e => { e.stopPropagation(); setOpen(true) }}
+          >
+            Details ▾
+          </button>
+          <button
+            style={styles.cartBarCheckoutBtn}
+            onClick={e => { e.stopPropagation(); onCheckout() }}
+          >
+            Checkout →
+          </button>
         </div>
       )}
     </div>
@@ -688,4 +816,36 @@ const styles = {
   input: { width: '100%', border: `1px solid ${c.border}`, borderRadius: 8, padding: '10px 12px', fontSize: 13, color: c.text, background: c.white, boxSizing: 'border-box' },
   textarea: { width: '100%', border: `1px solid ${c.border}`, borderRadius: 8, padding: '10px 12px', fontSize: 13, color: c.text, background: c.white, boxSizing: 'border-box', minHeight: 80, resize: 'vertical', marginBottom: 12 },
   checkoutNote: { fontSize: 12, color: c.muted, textAlign: 'center', lineHeight: 1.6, marginTop: 8 },
+
+  cartWrap: { position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 300, display: 'flex', justifyContent: 'center', padding: '0 12px 12px' },
+  cartBar: { width: '100%', maxWidth: 460, background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 20, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 6px 24px rgba(0,0,0,0.15)', cursor: 'pointer' },
+  cartBarIcon: { width: 34, height: 34, borderRadius: '50%', background: c.roseLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 },
+  cartBarInfo: { flex: 1, minWidth: 0 },
+  cartBarLabel: { fontSize: 10, color: c.muted, letterSpacing: '0.05em', textTransform: 'uppercase' },
+  cartBarSub: { fontSize: 13, fontWeight: 700, color: c.rose },
+  cartBarDetailsBtn: { background: c.roseLight, color: c.rose, border: 'none', borderRadius: 16, padding: '7px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
+  cartBarCheckoutBtn: { background: c.rose, color: c.white, border: 'none', borderRadius: 16, padding: '7px 14px', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
+
+  cartPanel: { width: '100%', maxWidth: 460, background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 20, boxShadow: '0 -6px 30px rgba(0,0,0,0.18)', display: 'flex', flexDirection: 'column', maxHeight: '75vh' },
+  cartPanelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '16px 16px 10px' },
+  cartPanelTitle: { fontSize: 15, fontWeight: 700, color: c.rose, fontFamily: "'Playfair Display', serif" },
+  cartPanelSub: { fontSize: 10, color: c.muted, letterSpacing: '0.05em', textTransform: 'uppercase', marginTop: 2 },
+  cartClearBtn: { background: c.roseLight, color: c.rose, border: 'none', borderRadius: 14, padding: '6px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' },
+  cartItemsScroll: { overflowY: 'auto', padding: '0 16px', flex: 1 },
+  cartItem: { display: 'flex', justifyContent: 'space-between', gap: 10, paddingBottom: 12, marginBottom: 12, borderBottom: `1px solid ${c.border}` },
+  cartItemLeft: { flex: 1, minWidth: 0 },
+  cartItemName: { fontSize: 13, fontWeight: 700, color: c.text, marginBottom: 2 },
+  cartItemDetail: { fontSize: 11, color: c.muted, lineHeight: 1.5 },
+  cartItemRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 },
+  cartItemSubtotal: { fontSize: 12, color: c.muted },
+  cartQtyStepper: { display: 'flex', alignItems: 'center', gap: 6, background: c.roseLight, borderRadius: 14, padding: '2px 8px' },
+  cartQtyBtn: { background: 'none', border: 'none', color: c.rose, fontSize: 14, fontWeight: 700, cursor: 'pointer', width: 16 },
+  cartQtyCount: { fontSize: 12, fontWeight: 700, color: c.rose, width: 14, textAlign: 'center' },
+  cartTrashBtn: { background: 'none', border: 'none', fontSize: 13, cursor: 'pointer', opacity: 0.6 },
+  cartPanelFooter: { padding: '12px 16px 16px', borderTop: `1px solid ${c.border}` },
+  cartTotalRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: c.muted, marginBottom: 10, letterSpacing: '0.05em', textTransform: 'uppercase' },
+  cartTotalAmount: { fontSize: 20, fontWeight: 700, color: c.rose, textTransform: 'none', letterSpacing: 0 },
+  cartFooterBtns: { display: 'flex', gap: 10 },
+  btnOutline2: { flex: 1, background: 'transparent', color: c.rose, border: `1.5px solid ${c.rose}`, borderRadius: 20, padding: '10px', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+  cartCheckoutBtn: { flex: 1.4, background: c.rose, color: c.white, border: 'none', borderRadius: 20, padding: '10px', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
 }
