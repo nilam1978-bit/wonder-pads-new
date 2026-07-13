@@ -127,6 +127,7 @@ export default function DesignStudio({ config, onBack }) {
   const [selectedLength, setSelectedLength] = useState(null)
   const [selectedBacking, setSelectedBacking] = useState('organic')
   const [extraLayers, setExtraLayers] = useState(0)
+  const [qty, setQty] = useState(1)
   const [activeCategory, setActiveCategory] = useState('All')
   const [basket, setBasket] = useState([])
 
@@ -145,6 +146,7 @@ export default function DesignStudio({ config, onBack }) {
     setSelectedShape(size.shapes[0])
     setSelectedBacking('organic')
     setExtraLayers(0)
+    setQty(1)
     setStep('fabric')
   }
 
@@ -155,8 +157,8 @@ export default function DesignStudio({ config, onBack }) {
 
   function handleAddToBasket() {
     const size = STUDIO_CONFIG.sizes.find(s => s.id === selectedSize)
-    const item = {
-      id: Date.now(),
+    const newItems = Array.from({ length: qty }, (_, i) => ({
+      id: Date.now() + i,
       sizeName: size.name,
       length: selectedLength,
       shape: SHAPE_NAMES[selectedShape],
@@ -164,14 +166,15 @@ export default function DesignStudio({ config, onBack }) {
       extraLayers,
       backing: selectedBacking,
       price: totalPrice,
-    }
-    setBasket([...basket, item])
+    }))
+    setBasket([...basket, ...newItems])
     setStep('size')
     setSelectedSize(null)
     setSelectedFabric(null)
     setSelectedShape(null)
     setSelectedLength(null)
     setExtraLayers(0)
+    setQty(1)
   }
 
   const fabrics = config.fabricsTop
@@ -286,121 +289,135 @@ export default function DesignStudio({ config, onBack }) {
       {/* STEP 3: CONFIGURE */}
       {step === 'configure' && sizeConfig && (
         <div style={styles.stepContent}>
-          <div style={styles.stepHeading}>Configure your pad</div>
+          <div style={styles.configCard}>
 
-          {/* Tip box */}
-          <div style={styles.tipBox}>
-            <span>💡</span>
-            <span style={styles.tipText}>{sizeConfig.tip}</span>
-          </div>
-
-          {/* Backing note */}
-          {sizeConfig.backingNote && (
-            <div style={styles.noteBox}>
-              <span>⚡</span>
-              <span style={styles.noteText}>{sizeConfig.backingNote}</span>
+            {/* Header: name + unit price */}
+            <div style={styles.configCardHeader}>
+              <div style={styles.configCardName}>
+                {sizeConfig.name} <span style={styles.configCardRange}>({sizeConfig.minLength}"–{sizeConfig.maxLength}")</span>
+              </div>
+              <div style={styles.configCardPriceWrap}>
+                <div style={styles.configCardPriceLabel}>UNIT PRICE</div>
+                <div style={styles.configCardPrice}>S${totalPrice.toFixed(2)}</div>
+              </div>
             </div>
-          )}
+            <div style={styles.configCardFor}>For: {sizeConfig.description}</div>
 
-          {/* Length slider */}
-          <div style={styles.configSection}>
-            <div style={styles.configLabel}>LENGTH</div>
-            <div style={styles.sliderRow}>
-              <span style={styles.sliderVal}>{selectedLength}"</span>
-              <input
-                type="range"
-                min={sizeConfig.minLength}
-                max={sizeConfig.maxLength}
-                value={selectedLength}
-                onChange={e => setSelectedLength(Number(e.target.value))}
-                style={styles.slider}
-              />
-              <span style={styles.sliderVal}>{sizeConfig.maxLength}"</span>
-            </div>
-            <div style={styles.sliderCurrent}>Selected: {selectedLength} inches</div>
-          </div>
-
-          {/* Shape selector */}
-          <div style={styles.configSection}>
-            <div style={styles.configLabel}>SHAPE</div>
-            <div style={styles.shapePills}>
-              {sizeConfig.shapes.map(shapeId => (
-                <button
-                  key={shapeId}
-                  style={{
-                    ...styles.shapePill,
-                    ...(selectedShape === shapeId ? styles.shapePillActive : {})
-                  }}
-                  onClick={() => setSelectedShape(shapeId)}
-                >
-                  {SHAPE_NAMES[shapeId]}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Backing options — Liner only */}
-          {sizeConfig.backingOptions && (
+            {/* Length pills */}
             <div style={styles.configSection}>
-              <div style={styles.configLabel}>BACKING</div>
-              {sizeConfig.backingOptions.map(opt => (
-                <div key={opt.id}>
-                  <div
+              <div style={styles.configLabel}>LENGTH</div>
+              <div style={styles.shapePills}>
+                {Array.from(
+                  { length: sizeConfig.maxLength - sizeConfig.minLength + 1 },
+                  (_, i) => sizeConfig.minLength + i
+                ).map(len => (
+                  <button
+                    key={len}
                     style={{
-                      ...styles.optionRow,
-                      ...(selectedBacking === opt.id ? styles.optionRowActive : {})
+                      ...styles.shapePill,
+                      ...(selectedLength === len ? styles.shapePillActive : {})
                     }}
-                    onClick={() => setSelectedBacking(opt.id)}
+                    onClick={() => setSelectedLength(len)}
                   >
-                    <div style={styles.optionName}>{opt.name}</div>
-                    <div style={styles.optionPrice}>
-                      {opt.extra > 0 ? `+S$${opt.extra.toFixed(2)}` : 'included'}
-                    </div>
-                  </div>
-                  {selectedBacking === opt.id && opt.note && (
-                    <div style={styles.optionNote}>📌 {opt.note}</div>
-                  )}
-                </div>
-              ))}
+                    {len}"
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
 
-          {/* Extra layers */}
-          {sizeConfig.maxExtraLayers > 0 && (
+            {/* Shape pills */}
             <div style={styles.configSection}>
-              <div style={styles.configLabel}>EXTRA LAYERS</div>
-              <div style={styles.noteBox}>
-                <span>💡</span>
-                <span style={styles.noteText}>
-                  Add extra absorbency layers at +S${sizeConfig.extraLayerPrice.toFixed(2)} each (max {sizeConfig.maxExtraLayers})
-                </span>
-              </div>
-              <div style={styles.layerRow}>
-                <button
-                  style={styles.layerBtn}
-                  onClick={() => setExtraLayers(Math.max(0, extraLayers - 1))}
-                >−</button>
-                <span style={styles.layerCount}>{extraLayers}</span>
-                <button
-                  style={styles.layerBtn}
-                  onClick={() => setExtraLayers(Math.min(sizeConfig.maxExtraLayers, extraLayers + 1))}
-                >+</button>
-                <span style={styles.layerNote}>
-                  {extraLayers > 0 ? `+S$${(extraLayers * sizeConfig.extraLayerPrice).toFixed(2)}` : 'no extra layers'}
-                </span>
+              <div style={styles.configLabel}>SHAPE</div>
+              <div style={styles.shapePills}>
+                {sizeConfig.shapes.map(shapeId => (
+                  <button
+                    key={shapeId}
+                    style={{
+                      ...styles.shapePill,
+                      ...(selectedShape === shapeId ? styles.shapePillActive : {})
+                    }}
+                    onClick={() => setSelectedShape(shapeId)}
+                  >
+                    {SHAPE_NAMES[shapeId]}
+                  </button>
+                ))}
               </div>
             </div>
-          )}
 
-          {/* Price + Add to basket */}
-          <div style={styles.priceRow}>
-            <div style={styles.priceLabel}>ESTIMATED PRICE</div>
-            <div style={styles.priceAmount}>S${totalPrice.toFixed(2)}</div>
+            {/* Extra layers + Backing dropdowns, side by side */}
+            <div style={styles.dropdownRow}>
+              <div style={styles.dropdownCol}>
+                <div style={styles.configLabel}>EXTRA LAYERS</div>
+                {sizeConfig.maxExtraLayers > 0 ? (
+                  <select
+                    style={styles.select}
+                    value={extraLayers}
+                    onChange={e => setExtraLayers(Number(e.target.value))}
+                  >
+                    <option value={0}>Standard core</option>
+                    {Array.from({ length: sizeConfig.maxExtraLayers }, (_, i) => i + 1).map(n => (
+                      <option key={n} value={n}>
+                        +{n} layer{n > 1 ? 's' : ''} (+S${(n * sizeConfig.extraLayerPrice).toFixed(2)})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select style={styles.select} disabled>
+                    <option>Standard core</option>
+                  </select>
+                )}
+              </div>
+
+              <div style={styles.dropdownCol}>
+                <div style={styles.configLabel}>BACKING</div>
+                {sizeConfig.backingOptions ? (
+                  <select
+                    style={styles.select}
+                    value={selectedBacking}
+                    onChange={e => setSelectedBacking(e.target.value)}
+                  >
+                    {sizeConfig.backingOptions.map(opt => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.name}{opt.extra > 0 ? ` (+S$${opt.extra.toFixed(2)})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select style={styles.select} disabled>
+                    <option>{sizeConfig.backing}</option>
+                  </select>
+                )}
+              </div>
+            </div>
+
+            {/* Backing note, if the selected option has one */}
+            {sizeConfig.backingOptions && (() => {
+              const opt = sizeConfig.backingOptions.find(o => o.id === selectedBacking)
+              return opt?.note ? <div style={styles.optionNote}>📌 {opt.note}</div> : null
+            })()}
+
+            {/* Qty + Add to basket */}
+            <div style={styles.qtyAddRow}>
+              <div style={styles.qtyStepper}>
+                <button
+                  style={styles.layerBtn}
+                  onClick={() => setQty(Math.max(1, qty - 1))}
+                >−</button>
+                <span style={styles.layerCount}>{qty}</span>
+                <button
+                  style={styles.layerBtn}
+                  onClick={() => setQty(qty + 1)}
+                >+</button>
+              </div>
+              <button
+                style={{...styles.btnPrimary, width: 'auto', flex: 1, marginBottom: 0}}
+                onClick={handleAddToBasket}
+              >
+                🛒 Add to Basket
+              </button>
+            </div>
+
           </div>
-
-          <button style={styles.btnPrimary} onClick={handleAddToBasket}>
-            🛒 Add to Basket
-          </button>
 
           <button style={styles.btnOutline} onClick={() => setStep('fabric')}>
             ← Change fabric
@@ -608,6 +625,19 @@ const styles = {
   priceLabel: { fontSize: 11, color: c.muted, letterSpacing: '0.08em' },
   priceAmount: { fontSize: 22, fontWeight: 700, color: c.rose },
   btnPrimary: { display: 'block', width: '100%', background: c.green, color: c.white, border: 'none', borderRadius: 20, padding: '12px', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 10, textAlign: 'center' },
+  configCard: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: '16px', marginBottom: 14 },
+  configCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
+  configCardName: { fontSize: 17, fontWeight: 700, color: c.rose, fontFamily: "'Playfair Display', serif" },
+  configCardRange: { fontSize: 12, fontWeight: 400, color: c.muted },
+  configCardPriceWrap: { textAlign: 'right' },
+  configCardPriceLabel: { fontSize: 9, color: c.muted, letterSpacing: '0.08em' },
+  configCardPrice: { fontSize: 16, fontWeight: 700, color: c.green },
+  configCardFor: { fontSize: 12, color: c.muted, lineHeight: 1.5, marginBottom: 16, fontStyle: 'italic' },
+  dropdownRow: { display: 'flex', gap: 10, marginBottom: 14 },
+  dropdownCol: { flex: 1 },
+  select: { width: '100%', border: `1.5px solid ${c.border}`, borderRadius: 8, padding: '9px 10px', fontSize: 12, color: c.text, background: c.white, boxSizing: 'border-box' },
+  qtyAddRow: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 },
+  qtyStepper: { display: 'flex', alignItems: 'center', gap: 8, background: c.roseLight, border: `1.5px solid ${c.border}`, borderRadius: 20, padding: '4px 8px' },
   btnOutline: { display: 'block', width: '100%', background: 'transparent', color: c.rose, border: `1.5px solid ${c.rose}`, borderRadius: 20, padding: '10px', fontSize: 13, cursor: 'pointer', marginBottom: 10, textAlign: 'center' },
   btnWhatsApp: { display: 'block', width: '100%', background: '#25D366', color: c.white, border: 'none', borderRadius: 20, padding: '12px', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 10, textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' },
   floatingPreview: { position: 'fixed', bottom: 24, right: 16, background: c.white, border: `1px solid ${c.border}`, borderRadius: 16, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 200 },
