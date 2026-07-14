@@ -15,7 +15,7 @@
  * page and the upload endpoint from randoms on the internet.
  */
 
-const APP_SECRET = 'wonderpads-secret-2026'; // <-- change this to anything you like, then remember it
+const APP_SECRET = 'wonderpads-2026';
 
 export default {
   async fetch(request, env, ctx) {
