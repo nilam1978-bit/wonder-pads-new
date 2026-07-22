@@ -4196,6 +4196,11 @@
       "id": "mega_pad",
       "name": "Mega Pad",
       "description": "Heavy-duty maximum coverage layout (15\" to 20\" lengths only)."
+    },
+    {
+      "id": "surged_curvy",
+      "name": "Surged/Curvy",
+      "description": "Long tapered body with a rounded finish, surged edge detailing."
     }
   ],
   "washingFaq": [
