@@ -124,19 +124,41 @@ const c = {
 }
 
 export default function DesignStudio({ config, onBack }) {
-  const [step, setStep] = useState('size')
-  const [selectedSize, setSelectedSize] = useState(null)
-  const [selectedFabric, setSelectedFabric] = useState(null)
+  // step now walks through one of two paths, sharing the same
+  // 'configure' + 'checkout' steps at the end:
+  //   Path A "fabric": entry -> fabric1 (pick ONE print) -> fabric2 (tick sizes) -> configure -> checkout
+  //   Path B "need":   entry -> need1   (pick ONE size)  -> need2   (tick prints) -> configure -> checkout
+  const [step, setStep] = useState('entry')
+  const [entryPath, setEntryPath] = useState(null) // 'fabric' | 'need' | null
+
+  // Path A selections
+  const [chosenFabric, setChosenFabric] = useState(null)     // single print, fabric1
+  const [chosenSizeIds, setChosenSizeIds] = useState([])     // ticked sizes, fabric2
+
+  // Path B selections
+  const [chosenNeedSizeId, setChosenNeedSizeId] = useState(null) // single size, need1
+  const [chosenFabrics, setChosenFabrics] = useState([])         // ticked prints, need2
+
+  // The queue of pads left to configure, built once both path steps are done.
+  // Each entry is { sizeId, fabric } — same shape regardless of which path built it,
+  // so the shared Configure step doesn't need to know which path is active.
+  const [queue, setQueue] = useState([])
+  const [queueIndex, setQueueIndex] = useState(0)
+
+  // Per-item configure state — reset every time we land on a new queue entry
   const [selectedShape, setSelectedShape] = useState(null)
   const [selectedLength, setSelectedLength] = useState(null)
   const [selectedBacking, setSelectedBacking] = useState('organic')
   const [extraLayers, setExtraLayers] = useState(0)
   const [qty, setQty] = useState(1)
+
   const [activeCategory, setActiveCategory] = useState('All')
   const [basket, setBasket] = useState([])
   const [cartOpen, setCartOpen] = useState(false)
 
-  const sizeConfig = STUDIO_CONFIG.sizes.find(s => s.id === selectedSize)
+  const currentQueueItem = queue[queueIndex] || null
+  const sizeConfig = currentQueueItem ? STUDIO_CONFIG.sizes.find(s => s.id === currentQueueItem.sizeId) : null
+  const currentFabric = currentQueueItem?.fabric || null
 
   const totalPrice = sizeConfig
     ? (sizeConfig.pricePerInch
@@ -146,23 +168,25 @@ export default function DesignStudio({ config, onBack }) {
       + (selectedBacking === 'antipill' ? 1.00 : 0)
     : 0
 
-  function handleSizeSelect(sizeId) {
-    const size = STUDIO_CONFIG.sizes.find(s => s.id === sizeId)
-    setSelectedSize(sizeId)
+  // Moves onto queue[index] and resets the per-item configure fields to that
+  // size's defaults — same defaulting logic as the old handleSizeSelect,
+  // including the backing fix: sizes with real choices (Liner) default to
+  // their first option, every other size uses its one fixed backing.
+  function goToQueueItem(index, overrideQueue) {
+    const q = overrideQueue || queue
+    const item = q[index]
+    const size = STUDIO_CONFIG.sizes.find(s => s.id === item.sizeId)
+    setQueueIndex(index)
     setSelectedLength(size.minLength)
     setSelectedShape(size.shapes[0])
-    // FIX: this used to always hardcode 'organic', so every basket item
-    // saved that backing regardless of size. Sizes with real backing
-    // choices (currently only Liner) default to their first option;
-    // every other size has one fixed backing, so use that directly.
     setSelectedBacking(size.backingOptions ? size.backingOptions[0].id : size.backing)
     setExtraLayers(0)
     setQty(1)
-    setStep('fabric')
   }
 
-  function handleFabricSelect(fabric) {
-    setSelectedFabric(fabric)
+  function startQueue(items) {
+    setQueue(items)
+    goToQueueItem(0, items)
     setStep('configure')
   }
 
@@ -179,25 +203,32 @@ export default function DesignStudio({ config, onBack }) {
   }
 
   function handleAddToBasket() {
-    const size = STUDIO_CONFIG.sizes.find(s => s.id === selectedSize)
     const newItems = Array.from({ length: qty }, (_, i) => ({
       id: Date.now() + i,
-      sizeName: size.name,
+      sizeName: sizeConfig.name,
       length: selectedLength,
       shape: SHAPE_NAMES[selectedShape],
-      fabric: selectedFabric,
+      fabric: currentFabric,
       extraLayers,
       backing: selectedBacking,
       price: totalPrice,
     }))
-    setBasket([...basket, ...newItems])
-    setStep('size')
-    setSelectedSize(null)
-    setSelectedFabric(null)
-    setSelectedShape(null)
-    setSelectedLength(null)
-    setExtraLayers(0)
-    setQty(1)
+    setBasket(prev => [...prev, ...newItems])
+
+    if (queueIndex + 1 < queue.length) {
+      // more queued pads to configure — auto-advance to the next one
+      goToQueueItem(queueIndex + 1)
+    } else {
+      // queue finished — clear everything and return to the entry choice
+      setQueue([])
+      setQueueIndex(0)
+      setEntryPath(null)
+      setChosenFabric(null)
+      setChosenSizeIds([])
+      setChosenNeedSizeId(null)
+      setChosenFabrics([])
+      setStep('entry')
+    }
   }
 
   const fabrics = config.fabricsTop
@@ -237,43 +268,175 @@ export default function DesignStudio({ config, onBack }) {
     setCartOpen(false)
   }
 
+  // Top progress bar labels/order depend on which path is active
+  function pathStepLabels(path) {
+    if (path === 'fabric') return ['Fabric', 'Sizes', 'Configure', 'Checkout']
+    if (path === 'need') return ['Need', 'Fabrics', 'Configure', 'Checkout']
+    return ['Configure', 'Checkout']
+  }
+  function pathStepIds(path) {
+    if (path === 'fabric') return ['fabric1', 'fabric2', 'configure', 'checkout']
+    if (path === 'need') return ['need1', 'need2', 'configure', 'checkout']
+    return ['configure', 'checkout']
+  }
+  const stepLabels = pathStepLabels(entryPath)
+  const stepIds = pathStepIds(entryPath)
+  const currentStepIdx = stepIds.indexOf(step)
+
   return (
     <div style={styles.container}>
       {/* Back button */}
       <div style={styles.topBar}>
-        <button style={styles.backBtn} onClick={onBack}>← Back</button>
+        <button
+          style={styles.backBtn}
+          onClick={() => {
+            if (step === 'entry') { onBack(); return }
+            // Any mid-path back-out returns to the entry choice screen
+            setEntryPath(null)
+            setStep('entry')
+          }}
+        >← Back</button>
         <div style={styles.topTitle}>Design Studio</div>
         <div style={{width: 40}} />
       </div>
 
-      {/* Step indicator */}
-      <div style={styles.stepBar}>
-        {['size', 'fabric', 'configure', 'checkout'].map((s, i) => (
-          <div key={s} style={styles.stepItem}>
-            <div style={{
-              ...styles.stepDot,
-              background: step === s ? c.rose : basket.length > 0 && i < ['size','fabric','configure','checkout'].indexOf(step) ? c.green : '#e8d0d0',
-              color: step === s || (basket.length > 0 && i < ['size','fabric','configure','checkout'].indexOf(step)) ? c.white : c.muted,
-            }}>
-              {i + 1}
+      {/* Step indicator — hidden on the entry screen itself */}
+      {step !== 'entry' && (
+        <div style={styles.stepBar}>
+          {stepLabels.map((label, i) => (
+            <div key={label} style={styles.stepItem}>
+              <div style={{
+                ...styles.stepDot,
+                background: i === currentStepIdx ? c.rose : i < currentStepIdx ? c.green : '#e8d0d0',
+                color: i <= currentStepIdx ? c.white : c.muted,
+              }}>
+                {i + 1}
+              </div>
+              <div style={{...styles.stepLabel, color: i === currentStepIdx ? c.rose : c.muted}}>
+                {label}
+              </div>
             </div>
-            <div style={{...styles.stepLabel, color: step === s ? c.rose : c.muted}}>
-              {s.charAt(0).toUpperCase() + s.slice(1)}
+          ))}
+        </div>
+      )}
+
+      {/* ENTRY: choose a path */}
+      {step === 'entry' && (
+        <div style={styles.stepContent}>
+          <div style={styles.stepHeading}>How would you like to start?</div>
+          <div style={styles.stepSub}>Either way you'll end up building the exact same custom pad — pick whichever feels easier.</div>
+
+          <div style={styles.entryCard} onClick={() => { setEntryPath('fabric'); setStep('fabric1') }}>
+            <div style={styles.entryCardIcon}>🎨</div>
+            <div style={styles.entryCardBody}>
+              <div style={styles.entryCardTitle}>Start with a Fabric</div>
+              <div style={styles.entryCardDesc}>Fell in love with a print? Pick it first, then tell us which sizes to make it into.</div>
             </div>
           </div>
-        ))}
-      </div>
 
-      {/* STEP 1: SIZE */}
-      {step === 'size' && (
+          <div style={styles.entryCard} onClick={() => { setEntryPath('need'); setStep('need1') }}>
+            <div style={styles.entryCardIcon}>🩸</div>
+            <div style={styles.entryCardBody}>
+              <div style={styles.entryCardTitle}>Start with your Need</div>
+              <div style={styles.entryCardDesc}>Not sure what print you want yet? Tell us your flow first, then browse fabrics that fit.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PATH A — STEP 1: pick one fabric */}
+      {step === 'fabric1' && (
         <div style={styles.stepContent}>
-          <div style={styles.stepHeading}>Choose your pad size</div>
+          <div style={styles.stepHeading}>Pick your fabric</div>
+          <div style={styles.stepSub}>Tap a print to select it.</div>
+
+          <div style={styles.catScroll}>
+            {STUDIO_CONFIG.categories.map(cat => (
+              <button
+                key={cat}
+                style={{...styles.catTab, ...(activeCategory === cat ? styles.catTabActive : {})}}
+                onClick={() => setActiveCategory(cat)}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          <div style={styles.fabricCount}>Showing {fabrics.length} prints</div>
+
+          <div style={styles.fabricGrid}>
+            {fabrics.slice(0, 24).map((f, i) => (
+              <div
+                key={f.id}
+                style={{
+                  ...styles.fabricCard,
+                  background: STUDIO_CONFIG.placeholderColors[i % STUDIO_CONFIG.placeholderColors.length],
+                  outline: chosenFabric?.id === f.id ? `3px solid ${c.rose}` : 'none',
+                }}
+                onClick={() => setChosenFabric(f)}
+              >
+                <div style={styles.fabricNum}>{f.id}</div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            style={{...styles.btnPrimary, opacity: chosenFabric ? 1 : 0.4, marginTop: 16}}
+            onClick={() => chosenFabric && setStep('fabric2')}
+          >
+            Continue with Print {chosenFabric?.id || '—'} →
+          </button>
+        </div>
+      )}
+
+      {/* PATH A — STEP 2: tick every size wanted in that fabric */}
+      {step === 'fabric2' && (
+        <div style={styles.stepContent}>
+          <div style={styles.stepHeading}>Which sizes in this print?</div>
+          <div style={styles.stepSub}>Tick everything you'd like made in Print {chosenFabric?.id}. You'll set the length, shape and backing for each one next.</div>
+
+          {STUDIO_CONFIG.sizes.map(size => {
+            const checked = chosenSizeIds.includes(size.id)
+            return (
+              <div
+                key={size.id}
+                style={{...styles.sizeCard, ...(checked ? styles.sizeCardActive : {})}}
+                onClick={() => setChosenSizeIds(
+                  checked ? chosenSizeIds.filter(id => id !== size.id) : [...chosenSizeIds, size.id]
+                )}
+              >
+                <div style={styles.sizeCardTop}>
+                  <div style={styles.sizeCardName}>{size.emoji} {size.name}</div>
+                  <div style={{...styles.checkBadge, ...(checked ? styles.checkBadgeActive : {})}}>{checked ? '✓' : ''}</div>
+                </div>
+                <div style={styles.sizeCardRange}>
+                  {size.minLength}"–{size.maxLength}" · from S${(size.pricePerInch ? size.minLength * size.pricePerInchRate : size.priceBase).toFixed(2)}
+                </div>
+                <div style={styles.sizeCardDesc}>{size.description}</div>
+              </div>
+            )
+          })}
+
+          <button
+            style={{...styles.btnPrimary, opacity: chosenSizeIds.length ? 1 : 0.4, marginTop: 16}}
+            onClick={() => chosenSizeIds.length && startQueue(chosenSizeIds.map(sizeId => ({ sizeId, fabric: chosenFabric })))}
+          >
+            Configure {chosenSizeIds.length || ''} Size{chosenSizeIds.length === 1 ? '' : 's'} →
+          </button>
+          <button style={styles.btnOutline} onClick={() => setStep('fabric1')}>← Change fabric</button>
+        </div>
+      )}
+
+      {/* PATH B — STEP 1: pick one size/absorbency */}
+      {step === 'need1' && (
+        <div style={styles.stepContent}>
+          <div style={styles.stepHeading}>What do you need?</div>
           <div style={styles.stepSub}>Not sure? Start with Light or Liner.</div>
           {STUDIO_CONFIG.sizes.map(size => (
             <div
               key={size.id}
               style={styles.sizeCard}
-              onClick={() => handleSizeSelect(size.id)}
+              onClick={() => { setChosenNeedSizeId(size.id); setStep('need2') }}
             >
               <div style={styles.sizeCardTop}>
                 <div style={styles.sizeCardName}>{size.emoji} {size.name}</div>
@@ -288,21 +451,19 @@ export default function DesignStudio({ config, onBack }) {
         </div>
       )}
 
-      {/* STEP 2: FABRIC */}
-      {step === 'fabric' && (
+      {/* PATH B — STEP 2: tick every fabric wanted in that size */}
+      {step === 'need2' && (
         <div style={styles.stepContent}>
-          <div style={styles.stepHeading}>Pick your fabric</div>
-          <div style={styles.stepSub}>Tap a print to select it.</div>
+          <div style={styles.stepHeading}>Pick your fabrics</div>
+          <div style={styles.stepSub}>
+            Tick every print you'd like made as a {STUDIO_CONFIG.sizes.find(s => s.id === chosenNeedSizeId)?.name}. You'll set the length, shape and backing for each one next.
+          </div>
 
-          {/* Category tabs */}
           <div style={styles.catScroll}>
             {STUDIO_CONFIG.categories.map(cat => (
               <button
                 key={cat}
-                style={{
-                  ...styles.catTab,
-                  ...(activeCategory === cat ? styles.catTabActive : {})
-                }}
+                style={{...styles.catTab, ...(activeCategory === cat ? styles.catTabActive : {})}}
                 onClick={() => setActiveCategory(cat)}
               >
                 {cat}
@@ -310,51 +471,69 @@ export default function DesignStudio({ config, onBack }) {
             ))}
           </div>
 
-          <div style={styles.fabricCount}>
-            Showing {fabrics.length} prints
-          </div>
+          <div style={styles.fabricCount}>Showing {fabrics.length} prints · {chosenFabrics.length} selected</div>
 
-          {/* Fabric grid — placeholders for now */}
           <div style={styles.fabricGrid}>
-            {fabrics.slice(0, 24).map((f, i) => (
-              <div
-                key={f.id}
-                style={{
-                  ...styles.fabricCard,
-                  background: STUDIO_CONFIG.placeholderColors[i % STUDIO_CONFIG.placeholderColors.length],
-                  outline: selectedFabric?.id === f.id ? `3px solid ${c.rose}` : 'none',
-                }}
-                onClick={() => handleFabricSelect(f)}
-              >
-                <div style={styles.fabricNum}>{f.id}</div>
-              </div>
-            ))}
+            {fabrics.slice(0, 24).map((f, i) => {
+              const checked = chosenFabrics.some(cf => cf.id === f.id)
+              return (
+                <div
+                  key={f.id}
+                  style={{
+                    ...styles.fabricCard,
+                    background: STUDIO_CONFIG.placeholderColors[i % STUDIO_CONFIG.placeholderColors.length],
+                    outline: checked ? `3px solid ${c.rose}` : 'none',
+                  }}
+                  onClick={() => setChosenFabrics(
+                    checked ? chosenFabrics.filter(cf => cf.id !== f.id) : [...chosenFabrics, f]
+                  )}
+                >
+                  <div style={styles.fabricNum}>{f.id}</div>
+                  {checked && <div style={styles.fabricCheckBadge}>✓</div>}
+                </div>
+              )
+            })}
           </div>
 
           <button
-            style={{...styles.btnPrimary, opacity: selectedFabric ? 1 : 0.4, marginTop: 16}}
-            onClick={() => selectedFabric && setStep('configure')}
+            style={{...styles.btnPrimary, opacity: chosenFabrics.length ? 1 : 0.4, marginTop: 16}}
+            onClick={() => chosenFabrics.length && startQueue(chosenFabrics.map(fabric => ({ sizeId: chosenNeedSizeId, fabric })))}
           >
-            Continue with Print {selectedFabric?.id || '—'} →
+            Configure {chosenFabrics.length || ''} Fabric{chosenFabrics.length === 1 ? '' : 's'} →
           </button>
+          <button style={styles.btnOutline} onClick={() => setStep('need1')}>← Change need</button>
         </div>
       )}
 
-      {/* STEP 3: CONFIGURE */}
+      {/* CONFIGURE — shared by both paths, once per queued pad */}
       {step === 'configure' && sizeConfig && (
         <div style={styles.stepContent}>
+          {queue.length > 1 && (
+            <div style={styles.queueBadge}>Pad {queueIndex + 1} of {queue.length}</div>
+          )}
+
           <div style={styles.configCard}>
 
-            {/* Header: name + unit price */}
-            <div style={styles.configCardHeader}>
-              <div style={styles.configCardName}>
-                {sizeConfig.name} <span style={styles.configCardRange}>({sizeConfig.minLength}"–{sizeConfig.maxLength}")</span>
-              </div>
-              <div style={styles.configCardPriceWrap}>
+            {/* Live preview, right inside the card, next to the header info */}
+            <div style={styles.configPreviewWrap}>
+              <PadShape
+                shapeId={selectedShape}
+                lengthInches={selectedLength || sizeConfig.minLength}
+                fabricImageUrl={currentFabric?.imageUrl}
+                backingColor="#e8c4d0"
+                showSnaps={true}
+                width={108}
+              />
+              <div style={styles.configPreviewInfo}>
+                <div style={styles.configCardName}>
+                  {sizeConfig.name} <span style={styles.configCardRange}>({sizeConfig.minLength}"–{sizeConfig.maxLength}")</span>
+                </div>
+                <div style={styles.configPreviewPrint}>Print {currentFabric?.id || '—'}</div>
                 <div style={styles.configCardPriceLabel}>UNIT PRICE</div>
                 <div style={styles.configCardPrice}>S${totalPrice.toFixed(2)}</div>
               </div>
             </div>
+
             <div style={styles.configCardFor}>For: {sizeConfig.description}</div>
 
             {/* Length pills */}
@@ -459,55 +638,32 @@ export default function DesignStudio({ config, onBack }) {
             {/* Qty + Add to basket */}
             <div style={styles.qtyAddRow}>
               <div style={styles.qtyStepper}>
-                <button
-                  style={styles.layerBtn}
-                  onClick={() => setQty(Math.max(1, qty - 1))}
-                >−</button>
+                <button style={styles.layerBtn} onClick={() => setQty(Math.max(1, qty - 1))}>−</button>
                 <span style={styles.layerCount}>{qty}</span>
-                <button
-                  style={styles.layerBtn}
-                  onClick={() => setQty(qty + 1)}
-                >+</button>
+                <button style={styles.layerBtn} onClick={() => setQty(qty + 1)}>+</button>
               </div>
               <button
                 style={{...styles.btnPrimary, width: 'auto', flex: 1, marginBottom: 0}}
                 onClick={handleAddToBasket}
               >
-                🛒 Add to Basket
+                🛒 {queueIndex + 1 < queue.length ? 'Add & Continue to Next Pad' : 'Add to Basket'}
               </button>
             </div>
 
           </div>
 
-          <button style={styles.btnOutline} onClick={() => setStep('fabric')}>
-            ← Change fabric
+          <button
+            style={styles.btnOutline}
+            onClick={() => setStep(entryPath === 'fabric' ? 'fabric2' : 'need2')}
+          >
+            ← Change selection
           </button>
         </div>
       )}
 
-      {/* STEP 4: CHECKOUT */}
+      {/* CHECKOUT */}
       {step === 'checkout' && (
-        <Checkout basket={basket} setBasket={setBasket} onBack={() => setStep('size')} />
-      )}
-
-      {/* Floating preview */}
-      {selectedShape && selectedSize && step !== 'checkout' && (
-        <div style={{
-          ...styles.floatingPreview,
-          bottom: basketCount > 0 && !cartOpen ? 92 : 24,
-        }}>
-          <PadShape
-            shapeId={selectedShape}
-            lengthInches={selectedLength || sizeConfig?.minLength}
-            backingColor='#e8c4d0'
-            showSnaps={true}
-            width={60}
-          />
-          <div style={styles.floatingInfo}>
-            <div style={styles.floatingSize}>{sizeConfig?.name} {selectedLength}"</div>
-            <div style={styles.floatingPrice}>S${totalPrice.toFixed(2)}</div>
-          </div>
-        </div>
+        <Checkout basket={basket} setBasket={setBasket} onBack={() => { setEntryPath(null); setStep('entry') }} />
       )}
 
       {/* Floating live cart */}
@@ -785,6 +941,19 @@ const styles = {
   priceAmount: { fontSize: 22, fontWeight: 700, color: c.rose },
   btnPrimary: { display: 'block', width: '100%', background: c.green, color: c.white, border: 'none', borderRadius: 20, padding: '12px', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 10, textAlign: 'center' },
   configCard: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: '16px', marginBottom: 14 },
+  entryCard: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: '16px', marginBottom: 12, display: 'flex', gap: 12, alignItems: 'flex-start', cursor: 'pointer' },
+  entryCardIcon: { fontSize: 28, lineHeight: 1 },
+  entryCardBody: { flex: 1 },
+  entryCardTitle: { fontSize: 15, fontWeight: 700, color: c.rose, fontFamily: "'Playfair Display', serif", marginBottom: 4 },
+  entryCardDesc: { fontSize: 12, color: c.muted, lineHeight: 1.5 },
+  sizeCardActive: { border: `1.5px solid ${c.rose}`, background: c.roseLight },
+  checkBadge: { width: 22, height: 22, borderRadius: '50%', border: `1.5px solid ${c.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: c.white, flexShrink: 0 },
+  checkBadgeActive: { background: c.rose, border: `1.5px solid ${c.rose}` },
+  fabricCheckBadge: { position: 'absolute', top: 4, right: 4, width: 16, height: 16, borderRadius: '50%', background: c.rose, color: c.white, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  queueBadge: { display: 'inline-block', background: c.roseLight, color: c.rose, fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', borderRadius: 12, padding: '4px 10px', marginBottom: 10 },
+  configPreviewWrap: { display: 'flex', gap: 14, alignItems: 'center', marginBottom: 12 },
+  configPreviewInfo: { flex: 1, display: 'flex', flexDirection: 'column', gap: 2 },
+  configPreviewPrint: { fontSize: 11, color: c.muted, marginBottom: 4 },
   configCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
   configCardName: { fontSize: 17, fontWeight: 700, color: c.rose, fontFamily: "'Playfair Display', serif" },
   configCardRange: { fontSize: 12, fontWeight: 400, color: c.muted },
