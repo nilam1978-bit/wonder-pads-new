@@ -3324,7 +3324,7 @@
       "hidden": false
     }
   ],
-  "fabricsBacking": [
+ "fabricsBacking": [
     {
       "id": "organic-cotton",
       "name": "Unbleached Organic Cotton",
@@ -3340,16 +3340,44 @@
       "stockStatus": "in_stock"
     },
     {
-      "id": "waterproof-pul",
-      "name": "Leakproof Breathable PUL",
+      "id": "softshell-fleece-black",
+      "name": "Black Softshell Fleece",
       "type": "backing",
-      "material": "Polyurethane Laminate layer",
-      "description": "Quiet, heavy-duty liquid leak barriers that prevent spills while permitting steam to dissipate.",
-      "colorHex": "#6d8374",
-      "premium": 1.5,
+      "material": "Softshell Fleece",
+      "description": "Soft, breathable everyday backing with a smooth face — the standard backing on Moderate, Heavy, and Extra Long pads.",
+      "colorHex": "#1a1a1a",
+      "premium": 0,
       "properties": [
-        "100% Water-repelled",
-        "No-sweat design"
+        "Soft & breathable",
+        "Everyday durability"
+      ],
+      "stockStatus": "in_stock"
+    },
+    {
+      "id": "softshell-fleece-white",
+      "name": "White Softshell Fleece",
+      "type": "backing",
+      "material": "Softshell Fleece",
+      "description": "Soft, breathable everyday backing with a smooth face — the standard backing on Light pads.",
+      "colorHex": "#f5f5f0",
+      "premium": 0,
+      "properties": [
+        "Soft & breathable",
+        "Everyday durability"
+      ],
+      "stockStatus": "in_stock"
+    },
+    {
+      "id": "antipill-fleece",
+      "name": "Antipill Fleece",
+      "type": "backing",
+      "material": "Antipill Fleece",
+      "description": "Cosy, leak-resistant fleece backing for Liners, with a little extra reassurance on the go.",
+      "colorHex": "#d8cfc4",
+      "premium": 1,
+      "properties": [
+        "Leak-resistant",
+        "Extra soft"
       ],
       "stockStatus": "in_stock"
     }
