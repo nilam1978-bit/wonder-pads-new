@@ -21,7 +21,7 @@ const STUDIO_CONFIG = {
       ],
       extraLayerPrice: 0.50,
       maxExtraLayers: 2,
-      shapes: ['moon_rise', 'staple', 'sunglow'],
+      shapes: ['moon_rise', 'staple', 'sunglow', 'surged_curvy'],
     },
     {
       id: 'light',
@@ -37,7 +37,7 @@ const STUDIO_CONFIG = {
       backingOptions: null,
       extraLayerPrice: 1.00,
       maxExtraLayers: 1,
-      shapes: ['moon_rise', 'staple', 'sunglow'],
+      shapes: ['moon_rise', 'staple', 'sunglow', 'surged_curvy'],
     },
     {
       id: 'moderate',
@@ -53,7 +53,7 @@ const STUDIO_CONFIG = {
       backingOptions: null,
       extraLayerPrice: 1.50,
       maxExtraLayers: 1,
-      shapes: ['moon_rise', 'staple', 'sunglow'],
+      shapes: ['moon_rise', 'staple', 'sunglow', 'surged_curvy'],
     },
     {
       id: 'heavy',
@@ -69,7 +69,7 @@ const STUDIO_CONFIG = {
       backingOptions: null,
       extraLayerPrice: 2.00,
       maxExtraLayers: 1,
-      shapes: ['moon_rise', 'staple', 'sunglow'],
+      shapes: ['moon_rise', 'staple', 'sunglow', 'surged_curvy'],
     },
     {
       id: 'extra_long',
@@ -87,8 +87,8 @@ const STUDIO_CONFIG = {
       backingOptions: null,
       extraLayerPrice: 0,
       maxExtraLayers: 0,
-      shapes: ['mega_pad', 'sunglow', 'moon_rise', 'staple'],
-      shapeMaxLength: { moon_rise: 18, staple: 18 },
+      shapes: ['mega_pad', 'sunglow', 'moon_rise', 'staple', 'surged_curvy'],
+      shapeMaxLength: { moon_rise: 18, staple: 18, surged_curvy: 18 },
     },
   ],
 
@@ -109,6 +109,7 @@ const SHAPE_NAMES = {
   staple: 'Staple',
   sunglow: 'Sunglow',
   mega_pad: 'Mega Pad',
+  surged_curvy: 'Surged/Curvy',
 }
 
 const c = {
@@ -150,7 +151,11 @@ export default function DesignStudio({ config, onBack }) {
     setSelectedSize(sizeId)
     setSelectedLength(size.minLength)
     setSelectedShape(size.shapes[0])
-    setSelectedBacking('organic')
+    // FIX: this used to always hardcode 'organic', so every basket item
+    // saved that backing regardless of size. Sizes with real backing
+    // choices (currently only Liner) default to their first option;
+    // every other size has one fixed backing, so use that directly.
+    setSelectedBacking(size.backingOptions ? size.backingOptions[0].id : size.backing)
     setExtraLayers(0)
     setQty(1)
     setStep('fabric')
