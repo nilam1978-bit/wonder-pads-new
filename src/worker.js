@@ -45,6 +45,31 @@ export default {
       return new Response(null, { headers: corsHeaders() });
     }
 
+    // 5. Admin catalog — lists what's already sitting in an R2 folder
+    if (url.pathname === '/api/r2-list' && request.method === 'GET') {
+      return handleR2List(url, env);
+    }
+
+    // 6. Admin catalog — CRUD for the fabrics table (D1)
+    if (url.pathname === '/api/admin/fabrics') {
+      return handleAdminFabrics(request, url, env);
+    }
+
+    // 7. Admin catalog — CRUD for the ready-made-stock table (D1)
+    if (url.pathname === '/api/admin/stock') {
+      return handleAdminStock(request, url, env);
+    }
+
+    // 8. Public reads — for the storefront to eventually switch from
+    //    static config.json to live D1 data (not wired up yet, see note
+    //    at the bottom of this file)
+    if (url.pathname === '/api/fabrics' && request.method === 'GET') {
+      return handlePublicFabrics(env);
+    }
+    if (url.pathname === '/api/stock' && request.method === 'GET') {
+      return handlePublicStock(env);
+    }
+
     // Everything else — your normal built site
     return env.ASSETS.fetch(request);
   },
@@ -341,6 +366,188 @@ document.getElementById('copyBtn').addEventListener('click', () => {
 </script>
 </body>
 </html>`;
+
+// ─────────────────────────────────────────────
+// 5. Admin catalog — browse what's already uploaded to an R2 folder
+//    (so you can pick from photos your Fabric Photo Tool already sent
+//    to R2, instead of re-uploading)
+// ─────────────────────────────────────────────
+async function handleR2List(url, env) {
+  const secret = url.searchParams.get('secret');
+  if (secret !== APP_SECRET) {
+    return jsonResponse({ error: 'Wrong secret' }, 403);
+  }
+
+  const folder = (url.searchParams.get('folder') || '').replace(/[^a-zA-Z0-9-_ ]/g, '');
+  if (!folder) {
+    return jsonResponse({ error: 'folder is required' }, 400);
+  }
+
+  const listed = await env.IMAGES.list({ prefix: `${folder}/`, limit: 500 });
+  const files = listed.objects.map((obj) => ({
+    key: obj.key,
+    url: `/images/${obj.key}`,
+    size: obj.size,
+    uploaded: obj.uploaded,
+  }));
+
+  return jsonResponse({ folder, files });
+}
+
+// ─────────────────────────────────────────────
+// 6. Admin catalog — fabrics table (D1)
+//    GET    /api/admin/fabrics?secret=...            -> list every fabric
+//    POST   /api/admin/fabrics   { secret, fabric }   -> add or update one
+//    DELETE /api/admin/fabrics?id=...&secret=...      -> remove one
+// ─────────────────────────────────────────────
+async function handleAdminFabrics(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM fabrics ORDER BY category, name'
+    ).all();
+    return jsonResponse({ fabrics: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const f = body.fabric || {};
+    if (!f.id || !f.name) {
+      return jsonResponse({ error: 'fabric.id and fabric.name are required' }, 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO fabrics (id, name, category, material, description, image_key, premium, stock_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         category = excluded.category,
+         material = excluded.material,
+         description = excluded.description,
+         image_key = excluded.image_key,
+         premium = excluded.premium,
+         stock_status = excluded.stock_status`
+    )
+      .bind(
+        f.id,
+        f.name,
+        f.category || 'General',
+        f.material || '',
+        f.description || '',
+        f.image_key || '',
+        f.premium || 0,
+        f.stock_status || 'in_stock'
+      )
+      .run();
+    return jsonResponse({ success: true });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM fabrics WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
+// 7. Admin catalog — ready_made_stocks table (D1)
+//    Same GET / POST / DELETE shape as fabrics, above.
+// ─────────────────────────────────────────────
+async function handleAdminStock(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM ready_made_stocks ORDER BY size_category, name'
+    ).all();
+    return jsonResponse({ stocks: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const s = body.stock || {};
+    if (!s.id || !s.name || !s.size_category) {
+      return jsonResponse({ error: 'stock.id, stock.name and stock.size_category are required' }, 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO ready_made_stocks (id, name, size_category, price, qty_available, image_key, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         size_category = excluded.size_category,
+         price = excluded.price,
+         qty_available = excluded.qty_available,
+         image_key = excluded.image_key,
+         notes = excluded.notes`
+    )
+      .bind(
+        s.id,
+        s.name,
+        s.size_category,
+        s.price || 0,
+        s.qty_available ?? 1,
+        s.image_key || '',
+        s.notes || ''
+      )
+      .run();
+    return jsonResponse({ success: true });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM ready_made_stocks WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
+// 8. Public reads — no secret required. Not wired into the storefront
+//    yet (App.jsx still reads the static /config.json) — that's the
+//    next step once the D1 catalog actually has real data in it.
+// ─────────────────────────────────────────────
+async function handlePublicFabrics(env) {
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM fabrics WHERE stock_status != 'hidden' ORDER BY category, name"
+  ).all();
+  return jsonResponse({ fabrics: results });
+}
+
+async function handlePublicStock(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM ready_made_stocks WHERE qty_available > 0 ORDER BY size_category, name'
+  ).all();
+  return jsonResponse({ stocks: results });
+}
 
 // ─────────────────────────────────────────────
 // CLEANUP — once the migration (job #2) is done and confirmed working,
