@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { PadShape } from './components/PadShapes'
 import DesignStudio from './components/DesignStudio'
 import CareFAQ from './components/CareFAQ'
+import AdminCatalog from './components/AdminCatalog'
 
 const WHATSAPP = '6583397556'
 
@@ -19,6 +20,11 @@ export default function App() {
     fetch('/config.json')
       .then(r => r.json())
       .then(setConfig)
+    // Reach the admin catalog via yoursite.com/?admin=1 — no separate
+    // routing setup needed, just checks the query string once on load.
+    if (new URLSearchParams(window.location.search).get('admin') === '1') {
+      setPath('admin')
+    }
   }, [])
 
   if (!config) return (
@@ -34,6 +40,8 @@ export default function App() {
         ? <DesignStudio config={config} onBack={() => setPath('home')} />
         : path === 'faq'
         ? <CareFAQ onBack={() => setPath('home')} />
+        : path === 'admin'
+        ? <AdminCatalog onBack={() => setPath('home')} />
         : <>
             <Header config={config} onNav={setPath} />
             {path === 'home' && <Landing config={config} onNav={setPath} />}
