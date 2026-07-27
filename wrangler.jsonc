@@ -11,5 +11,12 @@
       "binding": "IMAGES",
       "bucket_name": "wonder-pads-images"
     }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wonder-pads-db",
+      "database_id": "0799ad98-a699-4f10-8c0d-16d482a5e9a7"
+    }
   ]
 }
