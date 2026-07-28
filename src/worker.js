@@ -406,7 +406,7 @@ async function handleAdminFabrics(request, url, env) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
-      'SELECT * FROM fabrics ORDER BY category, name'
+      'SELECT * FROM fabrics_top ORDER BY category, name'
     ).all();
     return jsonResponse({ fabrics: results });
   }
@@ -426,15 +426,17 @@ async function handleAdminFabrics(request, url, env) {
       return jsonResponse({ error: 'fabric.id and fabric.name are required' }, 400);
     }
     await env.DB.prepare(
-      `INSERT INTO fabrics (id, name, category, material, description, image_key, premium, stock_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO fabrics_top (id, name, category, material, description, color_hex, image_url, premium, hidden, stock_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          category = excluded.category,
          material = excluded.material,
          description = excluded.description,
-         image_key = excluded.image_key,
+         color_hex = excluded.color_hex,
+         image_url = excluded.image_url,
          premium = excluded.premium,
+         hidden = excluded.hidden,
          stock_status = excluded.stock_status`
     )
       .bind(
@@ -443,8 +445,10 @@ async function handleAdminFabrics(request, url, env) {
         f.category || 'General',
         f.material || '',
         f.description || '',
-        f.image_key || '',
+        f.color_hex || '',
+        f.image_url || '',
         f.premium || 0,
+        f.hidden || 0,
         f.stock_status || 'in_stock'
       )
       .run();
@@ -457,7 +461,7 @@ async function handleAdminFabrics(request, url, env) {
     }
     const id = url.searchParams.get('id');
     if (!id) return jsonResponse({ error: 'id is required' }, 400);
-    await env.DB.prepare('DELETE FROM fabrics WHERE id = ?').bind(id).run();
+    await env.DB.prepare('DELETE FROM fabrics_top WHERE id = ?').bind(id).run();
     return jsonResponse({ success: true });
   }
 
@@ -494,14 +498,14 @@ async function handleAdminStock(request, url, env) {
       return jsonResponse({ error: 'stock.id, stock.name and stock.size_category are required' }, 400);
     }
     await env.DB.prepare(
-      `INSERT INTO ready_made_stocks (id, name, size_category, price, qty_available, image_key, notes)
+      `INSERT INTO ready_made_stocks (id, name, size_category, price, qty_available, image_url, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          size_category = excluded.size_category,
          price = excluded.price,
          qty_available = excluded.qty_available,
-         image_key = excluded.image_key,
+         image_url = excluded.image_url,
          notes = excluded.notes`
     )
       .bind(
@@ -510,7 +514,7 @@ async function handleAdminStock(request, url, env) {
         s.size_category,
         s.price || 0,
         s.qty_available ?? 1,
-        s.image_key || '',
+        s.image_url || '',
         s.notes || ''
       )
       .run();
@@ -537,7 +541,7 @@ async function handleAdminStock(request, url, env) {
 // ─────────────────────────────────────────────
 async function handlePublicFabrics(env) {
   const { results } = await env.DB.prepare(
-    "SELECT * FROM fabrics WHERE stock_status != 'hidden' ORDER BY category, name"
+    "SELECT * FROM fabrics_top WHERE hidden = 0 AND stock_status != 'hidden' ORDER BY category, name"
   ).all();
   return jsonResponse({ fabrics: results });
 }
