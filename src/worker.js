@@ -80,6 +80,32 @@ export default {
       return handleAdminShapes(request, url, env);
     }
 
+    // 7f. Admin catalog — CRUD for the blog_posts table (D1)
+    if (url.pathname === '/api/admin/blog') {
+      return handleAdminBlog(request, url, env);
+    }
+
+    // 7g. Admin catalog — CRUD for the faq table (D1)
+    if (url.pathname === '/api/admin/faq') {
+      return handleAdminFaq(request, url, env);
+    }
+
+    // 7h. Admin catalog — CRUD for the reviews table (D1)
+    if (url.pathname === '/api/admin/reviews') {
+      return handleAdminReviews(request, url, env);
+    }
+
+    // 7i. Admin catalog — read + status update + delete for the feedback
+    //     table (D1). No create — feedback only ever comes from the site.
+    if (url.pathname === '/api/admin/feedback') {
+      return handleAdminFeedback(request, url, env);
+    }
+
+    // 7j. Admin catalog — CRUD for the settings table (D1, key/value)
+    if (url.pathname === '/api/admin/settings') {
+      return handleAdminSettings(request, url, env);
+    }
+
     // 8. Public reads — for the storefront to eventually switch from
     //    static config.json to live D1 data (not wired up yet, see note
     //    at the bottom of this file)
@@ -100,6 +126,15 @@ export default {
     }
     if (url.pathname === '/api/shapes' && request.method === 'GET') {
       return handlePublicShapes(env);
+    }
+    if (url.pathname === '/api/blog' && request.method === 'GET') {
+      return handlePublicBlog(env);
+    }
+    if (url.pathname === '/api/faq' && request.method === 'GET') {
+      return handlePublicFaq(env);
+    }
+    if (url.pathname === '/api/reviews' && request.method === 'GET') {
+      return handlePublicReviews(env);
     }
 
     // Everything else — your normal built site
@@ -846,9 +881,296 @@ async function handleAdminShapes(request, url, env) {
 }
 
 // ─────────────────────────────────────────────
-// 8. Public reads — no secret required. Not wired into the storefront
-//    yet (App.jsx still reads the static /config.json) — that's the
-//    next step once the D1 catalog actually has real data in it.
+// 7f. Admin catalog — blog_posts table (D1)
+//    Same GET / POST / DELETE shape as fabrics, above. IDs are generated
+//    from the title (slug + random suffix) since the admin form doesn't
+//    ask for one directly.
+// ─────────────────────────────────────────────
+function slugify(text) {
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 40);
+}
+
+async function handleAdminBlog(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM blog_posts ORDER BY created_at DESC'
+    ).all();
+    return jsonResponse({ posts: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const p = body.post || {};
+    if (!p.title) {
+      return jsonResponse({ error: 'post.title is required' }, 400);
+    }
+    const id = p.id || `${slugify(p.title)}-${Date.now().toString(36)}`;
+    await env.DB.prepare(
+      `INSERT INTO blog_posts (id, title, content, image_url, author)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         content = excluded.content,
+         image_url = excluded.image_url,
+         author = excluded.author`
+    )
+      .bind(id, p.title, p.content || '', p.image_url || '', p.author || '')
+      .run();
+    return jsonResponse({ success: true, id });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM blog_posts WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
+// 7g. Admin catalog — faq table (D1)
+//    "source" defaults to 'wpn' in the schema — used to tell WPN's own
+//    FAQ entries apart from the ECP washing Q&As merged in alongside
+//    them. IDs are generated from the question.
+// ─────────────────────────────────────────────
+async function handleAdminFaq(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM faq ORDER BY sort_order, question'
+    ).all();
+    return jsonResponse({ faqs: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const f = body.faq || {};
+    if (!f.question || !f.answer) {
+      return jsonResponse({ error: 'faq.question and faq.answer are required' }, 400);
+    }
+    const id = f.id || `${slugify(f.question)}-${Date.now().toString(36)}`;
+    await env.DB.prepare(
+      `INSERT INTO faq (id, question, answer, source, sort_order)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         question = excluded.question,
+         answer = excluded.answer,
+         source = excluded.source,
+         sort_order = excluded.sort_order`
+    )
+      .bind(id, f.question, f.answer, f.source || 'wpn', f.sort_order || 0)
+      .run();
+    return jsonResponse({ success: true, id });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM faq WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
+// 7h. Admin catalog — reviews table (D1)
+//    Handles both cases: admin pastes in a testimonial manually, or a
+//    future public submission form inserts one with verified = 0 for
+//    admin to approve (flip verified to 1) or delete. IDs are generated
+//    from the customer name.
+// ─────────────────────────────────────────────
+async function handleAdminReviews(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM reviews ORDER BY sort_order, created_at DESC'
+    ).all();
+    return jsonResponse({ reviews: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const r = body.review || {};
+    if (!r.quote) {
+      return jsonResponse({ error: 'review.quote is required' }, 400);
+    }
+    const id = r.id || `${slugify(r.customer_name || 'review')}-${Date.now().toString(36)}`;
+    await env.DB.prepare(
+      `INSERT INTO reviews (id, customer_name, quote, verified, sort_order)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         customer_name = excluded.customer_name,
+         quote = excluded.quote,
+         verified = excluded.verified,
+         sort_order = excluded.sort_order`
+    )
+      .bind(id, r.customer_name || '', r.quote, r.verified ?? 1, r.sort_order || 0)
+      .run();
+    return jsonResponse({ success: true, id });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM reviews WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
+// 7i. Admin catalog — feedback table (D1). Read-only inbox from the site
+//    plus a status field for triage. NOTE: the live schema doesn't have
+//    a status column yet — run this once against your D1 before using
+//    this tab:
+//      ALTER TABLE feedback ADD COLUMN status TEXT DEFAULT 'new';
+//    No POST/create here — feedback only ever comes from the storefront.
+// ─────────────────────────────────────────────
+async function handleAdminFeedback(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM feedback ORDER BY created_at DESC'
+    ).all();
+    return jsonResponse({ feedback: results });
+  }
+
+  // Status update only — PATCH { secret, id, status }
+  if (request.method === 'PATCH') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    if (!body.id || !body.status) {
+      return jsonResponse({ error: 'id and status are required' }, 400);
+    }
+    await env.DB.prepare('UPDATE feedback SET status = ? WHERE id = ?')
+      .bind(body.status, body.id)
+      .run();
+    return jsonResponse({ success: true });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM feedback WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
+// 7j. Admin catalog — settings table (D1). Generic key/value store —
+//    no fixed columns, so this is a plain list of rows rather than a
+//    single form. Delete uses "key" as the identifier, not "id".
+// ─────────────────────────────────────────────
+async function handleAdminSettings(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM settings ORDER BY key'
+    ).all();
+    return jsonResponse({ settings: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const key = body.key;
+    if (!key) {
+      return jsonResponse({ error: 'key is required' }, 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+      .bind(key, body.value ?? '')
+      .run();
+    return jsonResponse({ success: true });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const key = url.searchParams.get('key');
+    if (!key) return jsonResponse({ error: 'key is required' }, 400);
+    await env.DB.prepare('DELETE FROM settings WHERE key = ?').bind(key).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+
 // ─────────────────────────────────────────────
 async function handlePublicFabrics(env) {
   const { results } = await env.DB.prepare(
@@ -890,6 +1212,27 @@ async function handlePublicShapes(env) {
     'SELECT * FROM shape_options ORDER BY sort_order, name'
   ).all();
   return jsonResponse({ shapes: results });
+}
+
+async function handlePublicBlog(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM blog_posts ORDER BY created_at DESC'
+  ).all();
+  return jsonResponse({ posts: results });
+}
+
+async function handlePublicFaq(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM faq ORDER BY sort_order, question'
+  ).all();
+  return jsonResponse({ faqs: results });
+}
+
+async function handlePublicReviews(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM reviews WHERE verified = 1 ORDER BY sort_order, created_at DESC'
+  ).all();
+  return jsonResponse({ reviews: results });
 }
 
 // ─────────────────────────────────────────────
