@@ -132,8 +132,8 @@ function useR2Browser(secret) {
   return { folder, setFolder, customFolder, setCustomFolder, files, loading, error, browse }
 }
 
-function FolderBrowser({ browser, existingImageKeys, onPick }) {
-  const unpicked = browser.files.filter(f => !existingImageKeys.includes(f.key))
+function FolderBrowser({ browser, existingImageUrls, onPick }) {
+  const unpicked = browser.files.filter(f => !existingImageUrls.includes(f.url))
   return (
     <div style={styles.card}>
       <div style={styles.label}>BROWSE AN R2 FOLDER</div>
@@ -175,7 +175,7 @@ function FolderBrowser({ browser, existingImageKeys, onPick }) {
 function FabricsTab({ secret, onAuthError }) {
   const [fabrics, setFabrics] = useState([])
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState(null) // { id, name, category, material, description, image_key, premium }
+  const [form, setForm] = useState(null) // { id, name, category, material, description, color_hex, image_url, premium }
   const browser = useR2Browser(secret)
 
   async function loadFabrics() {
@@ -197,7 +197,8 @@ function FabricsTab({ secret, onAuthError }) {
       category: browser.folder,
       material: '',
       description: '',
-      image_key: file.key,
+      color_hex: '',
+      image_url: file.url,
       premium: 0,
     })
   }
@@ -221,16 +222,16 @@ function FabricsTab({ secret, onAuthError }) {
     loadFabrics()
   }
 
-  const existingKeys = fabrics.map(f => f.image_key).filter(Boolean)
+  const existingUrls = fabrics.map(f => f.image_url).filter(Boolean)
 
   return (
     <div>
-      <FolderBrowser browser={browser} existingImageKeys={existingKeys} onPick={startNewFromFile} />
+      <FolderBrowser browser={browser} existingImageUrls={existingUrls} onPick={startNewFromFile} />
 
       {form && (
         <div style={styles.card}>
           <div style={styles.label}>ADD FABRIC</div>
-          <img src={`/images/${form.image_key}`} alt="" style={styles.previewImg} />
+          <img src={form.image_url} alt="" style={styles.previewImg} />
           <input style={styles.input} placeholder="Display name" value={form.name}
             onChange={e => setForm({ ...form, name: e.target.value })} />
           <input style={styles.input} placeholder="Catalog ID (unique, no spaces)" value={form.id}
@@ -239,6 +240,8 @@ function FabricsTab({ secret, onAuthError }) {
             onChange={e => setForm({ ...form, category: e.target.value })} />
           <input style={styles.input} placeholder="Material (e.g. Cotton Woven)" value={form.material}
             onChange={e => setForm({ ...form, material: e.target.value })} />
+          <input style={styles.input} placeholder="Swatch color (hex, optional, e.g. #6d8374)" value={form.color_hex}
+            onChange={e => setForm({ ...form, color_hex: e.target.value })} />
           <textarea style={styles.textarea} placeholder="Description" value={form.description}
             onChange={e => setForm({ ...form, description: e.target.value })} />
           <input style={styles.input} type="number" step="0.5" placeholder="Premium (extra $, or 0)" value={form.premium}
@@ -256,7 +259,7 @@ function FabricsTab({ secret, onAuthError }) {
           <div style={styles.entryList}>
             {fabrics.map(f => (
               <div key={f.id} style={styles.entryRow}>
-                {f.image_key && <img src={`/images/${f.image_key}`} alt="" style={styles.entryThumb} />}
+                {f.image_url && <img src={f.image_url} alt="" style={styles.entryThumb} />}
                 <div style={styles.entryInfo}>
                   <div style={styles.entryName}>{f.name}</div>
                   <div style={styles.entrySub}>{f.category} · {f.material || 'no material set'} · {f.stock_status}</div>
@@ -300,7 +303,7 @@ function StockTab({ secret, onAuthError }) {
       size_category: 'light',
       price: 0,
       qty_available: 1,
-      image_key: file.key,
+      image_url: file.url,
       notes: '',
     })
   }
@@ -324,16 +327,16 @@ function StockTab({ secret, onAuthError }) {
     loadStocks()
   }
 
-  const existingKeys = stocks.map(s => s.image_key).filter(Boolean)
+  const existingUrls = stocks.map(s => s.image_url).filter(Boolean)
 
   return (
     <div>
-      <FolderBrowser browser={browser} existingImageKeys={existingKeys} onPick={startNewFromFile} />
+      <FolderBrowser browser={browser} existingImageUrls={existingUrls} onPick={startNewFromFile} />
 
       {form && (
         <div style={styles.card}>
           <div style={styles.label}>ADD READY-MADE STOCK ITEM</div>
-          <img src={`/images/${form.image_key}`} alt="" style={styles.previewImg} />
+          <img src={form.image_url} alt="" style={styles.previewImg} />
           <input style={styles.input} placeholder="Display name" value={form.name}
             onChange={e => setForm({ ...form, name: e.target.value })} />
           <input style={styles.input} placeholder="Catalog ID (unique, no spaces)" value={form.id}
@@ -361,7 +364,7 @@ function StockTab({ secret, onAuthError }) {
           <div style={styles.entryList}>
             {stocks.map(s => (
               <div key={s.id} style={styles.entryRow}>
-                {s.image_key && <img src={`/images/${s.image_key}`} alt="" style={styles.entryThumb} />}
+                {s.image_url && <img src={s.image_url} alt="" style={styles.entryThumb} />}
                 <div style={styles.entryInfo}>
                   <div style={styles.entryName}>{s.name}</div>
                   <div style={styles.entrySub}>{s.size_category} · S${Number(s.price).toFixed(2)} · qty {s.qty_available}</div>
