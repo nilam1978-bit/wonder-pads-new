@@ -94,11 +94,19 @@ export default function AdminCatalog({ onBack }) {
         >
           Ready-Made Stock
         </button>
+        <button
+          style={{ ...styles.tab, ...(tab === 'backing' ? styles.tabActive : {}) }}
+          onClick={() => setTab('backing')}
+        >
+          Backing Fabrics
+        </button>
       </div>
 
       {tab === 'fabrics'
         ? <FabricsTab secret={secret} onAuthError={setAuthError} />
-        : <StockTab secret={secret} onAuthError={setAuthError} />}
+        : tab === 'stock'
+          ? <StockTab secret={secret} onAuthError={setAuthError} />
+          : <BackingTab secret={secret} onAuthError={setAuthError} />}
     </div>
   )
 }
@@ -380,6 +388,130 @@ function StockTab({ secret, onAuthError }) {
   )
 }
 
+// ─────────────────────────────────────────────
+// Backing Fabrics tab — no photos, shown by color swatch instead
+// ─────────────────────────────────────────────
+const BLANK_BACKING = {
+  id: '', name: '', type: 'backing', material: '', description: '',
+  color_hex: '#cccccc', premium: 0, properties: ['', ''], stock_status: 'in_stock',
+}
+
+function BackingTab({ secret, onAuthError }) {
+  const [backings, setBackings] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(null)
+
+  async function loadBackings() {
+    setLoading(true)
+    const res = await fetch(`/api/admin/backing?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); setLoading(false); return }
+    setBackings(data.backings.map(b => ({
+      ...b,
+      properties: (() => { try { return JSON.parse(b.properties || '[]') } catch { return [] } })(),
+    })))
+    setLoading(false)
+  }
+
+  useEffect(() => { loadBackings() }, [])
+
+  function startNew() {
+    setForm({ ...BLANK_BACKING })
+  }
+
+  function startEdit(b) {
+    setForm({ ...b, properties: [b.properties[0] || '', b.properties[1] || ''] })
+  }
+
+  async function saveForm() {
+    if (!form.id || !form.name) { alert('ID and name are required'); return }
+    const res = await fetch('/api/admin/backing', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        secret,
+        backing: { ...form, properties: form.properties.filter(Boolean) },
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error || 'Save failed'); return }
+    setForm(null)
+    loadBackings()
+  }
+
+  async function deleteBacking(id) {
+    if (!confirm(`Remove "${id}" from backing fabrics?`)) return
+    await fetch(`/api/admin/backing?id=${encodeURIComponent(id)}&secret=${encodeURIComponent(secret)}`, { method: 'DELETE' })
+    loadBackings()
+  }
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <button style={styles.btnPrimary} onClick={startNew}>+ Add Backing Fabric</button>
+      </div>
+
+      {form && (
+        <div style={styles.card}>
+          <div style={styles.label}>{backings.some(b => b.id === form.id) ? 'EDIT' : 'ADD'} BACKING FABRIC</div>
+          <input style={styles.input} placeholder="Display name (e.g. Black Softshell Fleece)" value={form.name}
+            onChange={e => setForm({ ...form, name: e.target.value })} />
+          <input style={styles.input} placeholder="Catalog ID (unique, no spaces)" value={form.id}
+            onChange={e => setForm({ ...form, id: e.target.value })} />
+          <input style={styles.input} placeholder="Material (e.g. Softshell Fleece)" value={form.material}
+            onChange={e => setForm({ ...form, material: e.target.value })} />
+          <div style={styles.row}>
+            <input style={{ ...styles.input, flex: 1 }} type="color" value={form.color_hex}
+              onChange={e => setForm({ ...form, color_hex: e.target.value })} />
+            <input style={{ ...styles.input, flex: 2 }} placeholder="#hexcode" value={form.color_hex}
+              onChange={e => setForm({ ...form, color_hex: e.target.value })} />
+          </div>
+          <textarea style={styles.textarea} placeholder="Description" value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })} />
+          <input style={styles.input} placeholder="Tag 1 (e.g. Soft & breathable)" value={form.properties[0]}
+            onChange={e => setForm({ ...form, properties: [e.target.value, form.properties[1]] })} />
+          <input style={styles.input} placeholder="Tag 2 (e.g. Everyday durability)" value={form.properties[1]}
+            onChange={e => setForm({ ...form, properties: [form.properties[0], e.target.value] })} />
+          <select style={styles.select} value={form.stock_status}
+            onChange={e => setForm({ ...form, stock_status: e.target.value })}>
+            <option value="in_stock">In stock</option>
+            <option value="leaving_soon">Leaving soon</option>
+            <option value="hidden">Hidden</option>
+          </select>
+          <label style={{ ...styles.smallNote, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={!!form.premium}
+              onChange={e => setForm({ ...form, premium: e.target.checked ? 1 : 0 })} />
+            Premium fabric (extra cost)
+          </label>
+          <div style={styles.row}>
+            <button style={styles.btnPrimary} onClick={saveForm}>Save to Catalog</button>
+            <button style={styles.btnSecondary} onClick={() => setForm(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={styles.label}>BACKING FABRICS ({backings.length})</div>
+        {loading ? <div style={styles.smallNote}>Loading…</div> : (
+          <div style={styles.entryList}>
+            {backings.map(b => (
+              <div key={b.id} style={styles.entryRow} onClick={() => startEdit(b)}>
+                <div style={{ ...styles.swatchDot, background: b.color_hex || '#ccc' }} />
+                <div style={styles.entryInfo}>
+                  <div style={styles.entryName}>{b.name}</div>
+                  <div style={styles.entrySub}>{b.material || 'no material set'} · {b.stock_status}{b.premium ? ' · premium' : ''}</div>
+                </div>
+                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteBacking(b.id) }}>✕</button>
+              </div>
+            ))}
+            {backings.length === 0 && <div style={styles.smallNote}>No backing fabrics saved yet — add your first one above.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const styles = {
   container: { fontFamily: "'Inter', sans-serif", color: c.text, maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: c.bg, padding: '16px' },
   lockCard: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: 24, marginTop: 80, display: 'flex', flexDirection: 'column', gap: 10 },
@@ -406,8 +538,9 @@ const styles = {
   thumbKey: { fontSize: 9, color: c.muted, padding: '3px 5px', background: c.roseLight, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   previewImg: { width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginBottom: 8 },
   entryList: { display: 'flex', flexDirection: 'column', gap: 8 },
-  entryRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px', borderRadius: 8, background: c.roseLight },
+  entryRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px', borderRadius: 8, background: c.roseLight, cursor: 'pointer' },
   entryThumb: { width: 40, height: 40, borderRadius: 6, objectFit: 'cover', flexShrink: 0 },
+  swatchDot: { width: 32, height: 32, borderRadius: '50%', flexShrink: 0, border: `1.5px solid ${c.border}` },
   entryInfo: { flex: 1, minWidth: 0 },
   entryName: { fontSize: 13, fontWeight: 600 },
   entrySub: { fontSize: 11, color: c.muted },
