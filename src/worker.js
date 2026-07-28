@@ -60,6 +60,11 @@ export default {
       return handleAdminStock(request, url, env);
     }
 
+    // 7b. Admin catalog — CRUD for the backing-fabrics table (D1)
+    if (url.pathname === '/api/admin/backing') {
+      return handleAdminBacking(request, url, env);
+    }
+
     // 8. Public reads — for the storefront to eventually switch from
     //    static config.json to live D1 data (not wired up yet, see note
     //    at the bottom of this file)
@@ -68,6 +73,9 @@ export default {
     }
     if (url.pathname === '/api/stock' && request.method === 'GET') {
       return handlePublicStock(env);
+    }
+    if (url.pathname === '/api/backing' && request.method === 'GET') {
+      return handlePublicBacking(env);
     }
 
     // Everything else — your normal built site
@@ -535,6 +543,84 @@ async function handleAdminStock(request, url, env) {
 }
 
 // ─────────────────────────────────────────────
+// 7b. Admin catalog — fabrics_backing table (D1)
+//    Same GET / POST / DELETE shape as fabrics, above. No photos —
+//    backing fabrics are shown by color swatch (color_hex), not an image.
+//    "properties" is stored as a JSON array (e.g. ["Soft & breathable"]).
+// ─────────────────────────────────────────────
+async function handleAdminBacking(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM fabrics_backing ORDER BY name'
+    ).all();
+    return jsonResponse({ backings: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const b = body.backing || {};
+    if (!b.id || !b.name) {
+      return jsonResponse({ error: 'backing.id and backing.name are required' }, 400);
+    }
+    let propertiesJson = '[]';
+    try {
+      propertiesJson = JSON.stringify(Array.isArray(b.properties) ? b.properties : []);
+    } catch {
+      propertiesJson = '[]';
+    }
+    await env.DB.prepare(
+      `INSERT INTO fabrics_backing (id, name, type, material, description, color_hex, premium, properties, stock_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         type = excluded.type,
+         material = excluded.material,
+         description = excluded.description,
+         color_hex = excluded.color_hex,
+         premium = excluded.premium,
+         properties = excluded.properties,
+         stock_status = excluded.stock_status`
+    )
+      .bind(
+        b.id,
+        b.name,
+        b.type || 'backing',
+        b.material || '',
+        b.description || '',
+        b.color_hex || '',
+        b.premium || 0,
+        propertiesJson,
+        b.stock_status || 'in_stock'
+      )
+      .run();
+    return jsonResponse({ success: true });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM fabrics_backing WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
 // 8. Public reads — no secret required. Not wired into the storefront
 //    yet (App.jsx still reads the static /config.json) — that's the
 //    next step once the D1 catalog actually has real data in it.
@@ -551,6 +637,13 @@ async function handlePublicStock(env) {
     'SELECT * FROM ready_made_stocks WHERE qty_available > 0 ORDER BY size_category, name'
   ).all();
   return jsonResponse({ stocks: results });
+}
+
+async function handlePublicBacking(env) {
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM fabrics_backing WHERE stock_status != 'hidden' ORDER BY name"
+  ).all();
+  return jsonResponse({ backings: results });
 }
 
 // ─────────────────────────────────────────────
