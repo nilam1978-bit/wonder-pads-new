@@ -43,7 +43,7 @@ export default function AdminCatalog({ onBack }) {
   const [secretInput, setSecretInput] = useState('')
   const [authError, setAuthError] = useState('')
 
-  const [tab, setTab] = useState('fabrics') // 'fabrics' | 'stock'
+  const [tab, setTab] = useState('fabrics') // 'fabrics' | 'stock' | 'backing' | 'sizes' | 'absorbency' | 'shapes'
 
   function tryUnlock() {
     if (!secretInput) return
@@ -82,34 +82,35 @@ export default function AdminCatalog({ onBack }) {
       </div>
 
       <div style={styles.tabRow}>
-        <button
-          style={{ ...styles.tab, ...(tab === 'fabrics' ? styles.tabActive : {}) }}
-          onClick={() => setTab('fabrics')}
-        >
-          Fabrics
-        </button>
-        <button
-          style={{ ...styles.tab, ...(tab === 'stock' ? styles.tabActive : {}) }}
-          onClick={() => setTab('stock')}
-        >
-          Ready-Made Stock
-        </button>
-        <button
-          style={{ ...styles.tab, ...(tab === 'backing' ? styles.tabActive : {}) }}
-          onClick={() => setTab('backing')}
-        >
-          Backing Fabrics
-        </button>
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            style={{ ...styles.tab, ...(tab === t.id ? styles.tabActive : {}) }}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {tab === 'fabrics'
-        ? <FabricsTab secret={secret} onAuthError={setAuthError} />
-        : tab === 'stock'
-          ? <StockTab secret={secret} onAuthError={setAuthError} />
-          : <BackingTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'fabrics' && <FabricsTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'stock' && <StockTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'backing' && <BackingTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'sizes' && <SizesTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'absorbency' && <AbsorbencyTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'shapes' && <ShapesTab secret={secret} onAuthError={setAuthError} />}
     </div>
   )
 }
+
+const TABS = [
+  { id: 'fabrics', label: 'Fabrics' },
+  { id: 'stock', label: 'Ready-Made Stock' },
+  { id: 'backing', label: 'Backing Fabrics' },
+  { id: 'sizes', label: 'Sizes' },
+  { id: 'absorbency', label: 'Absorbency' },
+  { id: 'shapes', label: 'Shapes' },
+]
 
 // ─────────────────────────────────────────────
 // Shared: browse an R2 folder, pick a photo not yet in the catalog
@@ -512,14 +513,347 @@ function BackingTab({ secret, onAuthError }) {
   )
 }
 
+// ─────────────────────────────────────────────
+// Sizes tab — the 5 fixed size categories (Liner, Light, Moderate, Heavy,
+// Extra Long). No photos — edit in place. Liner is the only size with
+// layer_upgrade / backing_upgrade fields, so those two inputs only show
+// up when editing an entry whose id is "liner".
+// ─────────────────────────────────────────────
+const BLANK_SIZE = {
+  id: '', name: '', length_inches: 0, width_cm: 0, description: '',
+  price_base: 0, best_for: '', color_label: '', min_length: 0, max_length: 0,
+  layer_upgrade: 0, backing_upgrade: 0, sort_order: 0,
+}
+
+function SizesTab({ secret, onAuthError }) {
+  const [sizes, setSizes] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(null)
+
+  async function loadSizes() {
+    setLoading(true)
+    const res = await fetch(`/api/admin/sizes?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); setLoading(false); return }
+    setSizes(data.sizes)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadSizes() }, [])
+
+  function startNew() {
+    setForm({ ...BLANK_SIZE })
+  }
+
+  function startEdit(s) {
+    setForm({ ...BLANK_SIZE, ...s })
+  }
+
+  async function saveForm() {
+    if (!form.id || !form.name) { alert('ID and name are required'); return }
+    const res = await fetch('/api/admin/sizes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret, size: form }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error || 'Save failed'); return }
+    setForm(null)
+    loadSizes()
+  }
+
+  async function deleteSize(id) {
+    if (!confirm(`Remove "${id}" from sizes?`)) return
+    await fetch(`/api/admin/sizes?id=${encodeURIComponent(id)}&secret=${encodeURIComponent(secret)}`, { method: 'DELETE' })
+    loadSizes()
+  }
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <button style={styles.btnPrimary} onClick={startNew}>+ Add Size</button>
+      </div>
+
+      {form && (
+        <div style={styles.card}>
+          <div style={styles.label}>{sizes.some(s => s.id === form.id) ? 'EDIT' : 'ADD'} SIZE</div>
+          <input style={styles.input} placeholder="Display name (e.g. Moderate)" value={form.name}
+            onChange={e => setForm({ ...form, name: e.target.value })} />
+          <input style={styles.input} placeholder="Catalog ID (unique, no spaces, e.g. moderate)" value={form.id}
+            onChange={e => setForm({ ...form, id: e.target.value })} />
+          <div style={styles.row}>
+            <input style={styles.input} type="number" placeholder="Length (inches)" value={form.length_inches}
+              onChange={e => setForm({ ...form, length_inches: Number(e.target.value) })} />
+            <input style={styles.input} type="number" placeholder="Width (cm)" value={form.width_cm}
+              onChange={e => setForm({ ...form, width_cm: Number(e.target.value) })} />
+          </div>
+          <div style={styles.row}>
+            <input style={styles.input} type="number" placeholder="Min length (inches)" value={form.min_length}
+              onChange={e => setForm({ ...form, min_length: Number(e.target.value) })} />
+            <input style={styles.input} type="number" placeholder="Max length (inches)" value={form.max_length}
+              onChange={e => setForm({ ...form, max_length: Number(e.target.value) })} />
+          </div>
+          <textarea style={styles.textarea} placeholder="Description" value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })} />
+          <input style={styles.input} placeholder="Best for (e.g. Medium cycles, daytime)" value={form.best_for}
+            onChange={e => setForm({ ...form, best_for: e.target.value })} />
+          <div style={styles.row}>
+            <input style={styles.input} placeholder="Color label (e.g. amber)" value={form.color_label}
+              onChange={e => setForm({ ...form, color_label: e.target.value })} />
+            <input style={styles.input} type="number" step="0.5" placeholder="Base price (S$)" value={form.price_base}
+              onChange={e => setForm({ ...form, price_base: Number(e.target.value) })} />
+          </div>
+          {form.id === 'liner' && (
+            <>
+              <div style={styles.smallNote}>Liner-only fields (extra cost, S$):</div>
+              <div style={styles.row}>
+                <input style={styles.input} type="number" step="0.5" placeholder="Layer upgrade (S$)" value={form.layer_upgrade}
+                  onChange={e => setForm({ ...form, layer_upgrade: Number(e.target.value) })} />
+                <input style={styles.input} type="number" step="0.5" placeholder="Backing upgrade (S$)" value={form.backing_upgrade}
+                  onChange={e => setForm({ ...form, backing_upgrade: Number(e.target.value) })} />
+              </div>
+            </>
+          )}
+          <input style={styles.input} type="number" placeholder="Sort order (optional, lower shows first)" value={form.sort_order}
+            onChange={e => setForm({ ...form, sort_order: Number(e.target.value) })} />
+          <div style={styles.row}>
+            <button style={styles.btnPrimary} onClick={saveForm}>Save to Catalog</button>
+            <button style={styles.btnSecondary} onClick={() => setForm(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={styles.label}>SIZES ({sizes.length})</div>
+        {loading ? <div style={styles.smallNote}>Loading…</div> : (
+          <div style={styles.entryList}>
+            {sizes.map(s => (
+              <div key={s.id} style={styles.entryRow} onClick={() => startEdit(s)}>
+                <div style={styles.entryInfo}>
+                  <div style={styles.entryName}>{s.name}</div>
+                  <div style={styles.entrySub}>{s.length_inches}" · S${Number(s.price_base).toFixed(2)} · {s.best_for || 'no "best for" set'}</div>
+                </div>
+                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteSize(s.id) }}>✕</button>
+              </div>
+            ))}
+            {sizes.length === 0 && <div style={styles.smallNote}>No sizes saved yet — add one above.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// Absorbency tab — the 4 fixed absorbency levels (Standard, Moderate,
+// Heavy, Super). No photos — edit in place.
+// ─────────────────────────────────────────────
+const BLANK_ABSORBENCY = {
+  id: '', name: '', core_layers: 1, description: '', icon: '', price_modifier: 0, capacity_ml: 0, sort_order: 0,
+}
+
+function AbsorbencyTab({ secret, onAuthError }) {
+  const [levels, setLevels] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(null)
+
+  async function loadLevels() {
+    setLoading(true)
+    const res = await fetch(`/api/admin/absorbency?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); setLoading(false); return }
+    setLevels(data.absorbency)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadLevels() }, [])
+
+  function startNew() {
+    setForm({ ...BLANK_ABSORBENCY })
+  }
+
+  function startEdit(a) {
+    setForm({ ...BLANK_ABSORBENCY, ...a })
+  }
+
+  async function saveForm() {
+    if (!form.id || !form.name) { alert('ID and name are required'); return }
+    const res = await fetch('/api/admin/absorbency', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret, absorbency: form }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error || 'Save failed'); return }
+    setForm(null)
+    loadLevels()
+  }
+
+  async function deleteLevel(id) {
+    if (!confirm(`Remove "${id}" from absorbency levels?`)) return
+    await fetch(`/api/admin/absorbency?id=${encodeURIComponent(id)}&secret=${encodeURIComponent(secret)}`, { method: 'DELETE' })
+    loadLevels()
+  }
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <button style={styles.btnPrimary} onClick={startNew}>+ Add Absorbency Level</button>
+      </div>
+
+      {form && (
+        <div style={styles.card}>
+          <div style={styles.label}>{levels.some(a => a.id === form.id) ? 'EDIT' : 'ADD'} ABSORBENCY LEVEL</div>
+          <input style={styles.input} placeholder="Display name (e.g. Heavy absorbency)" value={form.name}
+            onChange={e => setForm({ ...form, name: e.target.value })} />
+          <input style={styles.input} placeholder="Catalog ID (unique, no spaces, e.g. heavy)" value={form.id}
+            onChange={e => setForm({ ...form, id: e.target.value })} />
+          <div style={styles.row}>
+            <input style={styles.input} type="number" placeholder="Core layers" value={form.core_layers}
+              onChange={e => setForm({ ...form, core_layers: Number(e.target.value) })} />
+            <input style={styles.input} type="number" placeholder="Capacity (ml)" value={form.capacity_ml}
+              onChange={e => setForm({ ...form, capacity_ml: Number(e.target.value) })} />
+          </div>
+          <textarea style={styles.textarea} placeholder="Description" value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })} />
+          <div style={styles.row}>
+            <input style={styles.input} placeholder="Icon (e.g. droplets-3)" value={form.icon}
+              onChange={e => setForm({ ...form, icon: e.target.value })} />
+            <input style={styles.input} type="number" step="0.5" placeholder="Price modifier (S$)" value={form.price_modifier}
+              onChange={e => setForm({ ...form, price_modifier: Number(e.target.value) })} />
+          </div>
+          <input style={styles.input} type="number" placeholder="Sort order (optional, lower shows first)" value={form.sort_order}
+            onChange={e => setForm({ ...form, sort_order: Number(e.target.value) })} />
+          <div style={styles.row}>
+            <button style={styles.btnPrimary} onClick={saveForm}>Save to Catalog</button>
+            <button style={styles.btnSecondary} onClick={() => setForm(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={styles.label}>ABSORBENCY LEVELS ({levels.length})</div>
+        {loading ? <div style={styles.smallNote}>Loading…</div> : (
+          <div style={styles.entryList}>
+            {levels.map(a => (
+              <div key={a.id} style={styles.entryRow} onClick={() => startEdit(a)}>
+                <div style={styles.entryInfo}>
+                  <div style={styles.entryName}>{a.name}</div>
+                  <div style={styles.entrySub}>{a.core_layers} layer{a.core_layers === 1 ? '' : 's'} · {a.capacity_ml}ml · +S${Number(a.price_modifier).toFixed(2)}</div>
+                </div>
+                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteLevel(a.id) }}>✕</button>
+              </div>
+            ))}
+            {levels.length === 0 && <div style={styles.smallNote}>No absorbency levels saved yet — add one above.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// Shapes tab — the 5 fixed shapes (Moon Rise, Sunglow, Staple, Mega Pad,
+// Surged/Curvy). Simplest tab — just id, name, description.
+// ─────────────────────────────────────────────
+const BLANK_SHAPE = { id: '', name: '', description: '', sort_order: 0 }
+
+function ShapesTab({ secret, onAuthError }) {
+  const [shapes, setShapes] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(null)
+
+  async function loadShapes() {
+    setLoading(true)
+    const res = await fetch(`/api/admin/shapes?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); setLoading(false); return }
+    setShapes(data.shapes)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadShapes() }, [])
+
+  function startNew() {
+    setForm({ ...BLANK_SHAPE })
+  }
+
+  function startEdit(s) {
+    setForm({ ...BLANK_SHAPE, ...s })
+  }
+
+  async function saveForm() {
+    if (!form.id || !form.name) { alert('ID and name are required'); return }
+    const res = await fetch('/api/admin/shapes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret, shape: form }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error || 'Save failed'); return }
+    setForm(null)
+    loadShapes()
+  }
+
+  async function deleteShape(id) {
+    if (!confirm(`Remove "${id}" from shapes?`)) return
+    await fetch(`/api/admin/shapes?id=${encodeURIComponent(id)}&secret=${encodeURIComponent(secret)}`, { method: 'DELETE' })
+    loadShapes()
+  }
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <button style={styles.btnPrimary} onClick={startNew}>+ Add Shape</button>
+      </div>
+
+      {form && (
+        <div style={styles.card}>
+          <div style={styles.label}>{shapes.some(s => s.id === form.id) ? 'EDIT' : 'ADD'} SHAPE</div>
+          <input style={styles.input} placeholder="Display name (e.g. Moon Rise)" value={form.name}
+            onChange={e => setForm({ ...form, name: e.target.value })} />
+          <input style={styles.input} placeholder="Catalog ID (unique, no spaces, e.g. moon_rise)" value={form.id}
+            onChange={e => setForm({ ...form, id: e.target.value })} />
+          <textarea style={styles.textarea} placeholder="Description" value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })} />
+          <input style={styles.input} type="number" placeholder="Sort order (optional, lower shows first)" value={form.sort_order}
+            onChange={e => setForm({ ...form, sort_order: Number(e.target.value) })} />
+          <div style={styles.row}>
+            <button style={styles.btnPrimary} onClick={saveForm}>Save to Catalog</button>
+            <button style={styles.btnSecondary} onClick={() => setForm(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={styles.label}>SHAPES ({shapes.length})</div>
+        {loading ? <div style={styles.smallNote}>Loading…</div> : (
+          <div style={styles.entryList}>
+            {shapes.map(s => (
+              <div key={s.id} style={styles.entryRow} onClick={() => startEdit(s)}>
+                <div style={styles.entryInfo}>
+                  <div style={styles.entryName}>{s.name}</div>
+                  <div style={styles.entrySub}>{s.description}</div>
+                </div>
+                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteShape(s.id) }}>✕</button>
+              </div>
+            ))}
+            {shapes.length === 0 && <div style={styles.smallNote}>No shapes saved yet — add one above.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const styles = {
   container: { fontFamily: "'Inter', sans-serif", color: c.text, maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: c.bg, padding: '16px' },
   lockCard: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: 24, marginTop: 80, display: 'flex', flexDirection: 'column', gap: 10 },
   lockTitle: { fontSize: 18, fontWeight: 700, textAlign: 'center', marginBottom: 6 },
   topBar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   topTitle: { fontWeight: 700, fontSize: 16 },
-  tabRow: { display: 'flex', gap: 8, marginBottom: 14 },
-  tab: { flex: 1, padding: '10px 0', borderRadius: 10, border: `1.5px solid ${c.border}`, background: c.white, color: c.muted, fontWeight: 600, cursor: 'pointer' },
+  tabRow: { display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
+  tab: { flex: '1 1 30%', minWidth: 90, padding: '9px 4px', borderRadius: 10, border: `1.5px solid ${c.border}`, background: c.white, color: c.muted, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' },
   tabActive: { background: c.rose, color: c.white, border: `1.5px solid ${c.rose}` },
   card: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 14, padding: 14, marginBottom: 14 },
   label: { fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: c.muted, marginBottom: 8 },
