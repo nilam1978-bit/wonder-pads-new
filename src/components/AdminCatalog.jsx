@@ -26,7 +26,7 @@ const c = {
 const FOLDERS = [
   'General', 'Flowers', 'Kimmi', 'Characters', 'Abstract', 'Halloween',
   'Animal', 'Solid', 'Organic', 'Batik', 'New arrivals', 'Leaving soon',
-  'Ready-made stock',
+  'Ready-made stock', 'Blog',
 ]
 
 const SIZE_CATEGORIES = [
@@ -43,7 +43,7 @@ export default function AdminCatalog({ onBack }) {
   const [secretInput, setSecretInput] = useState('')
   const [authError, setAuthError] = useState('')
 
-  const [tab, setTab] = useState('fabrics') // 'fabrics' | 'stock' | 'backing' | 'sizes' | 'absorbency' | 'shapes'
+  const [tab, setTab] = useState('fabrics') // see TABS array below for all valid ids
 
   function tryUnlock() {
     if (!secretInput) return
@@ -99,6 +99,11 @@ export default function AdminCatalog({ onBack }) {
       {tab === 'sizes' && <SizesTab secret={secret} onAuthError={setAuthError} />}
       {tab === 'absorbency' && <AbsorbencyTab secret={secret} onAuthError={setAuthError} />}
       {tab === 'shapes' && <ShapesTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'blog' && <BlogTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'faq' && <FaqTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'reviews' && <ReviewsTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'feedback' && <FeedbackTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'settings' && <SettingsTab secret={secret} onAuthError={setAuthError} />}
     </div>
   )
 }
@@ -110,6 +115,11 @@ const TABS = [
   { id: 'sizes', label: 'Sizes' },
   { id: 'absorbency', label: 'Absorbency' },
   { id: 'shapes', label: 'Shapes' },
+  { id: 'blog', label: 'Blog' },
+  { id: 'faq', label: 'FAQ' },
+  { id: 'reviews', label: 'Reviews' },
+  { id: 'feedback', label: 'Feedback' },
+  { id: 'settings', label: 'Settings' },
 ]
 
 // ─────────────────────────────────────────────
@@ -839,6 +849,488 @@ function ShapesTab({ secret, onAuthError }) {
               </div>
             ))}
             {shapes.length === 0 && <div style={styles.smallNote}>No shapes saved yet — add one above.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// Blog tab — blog_posts. Cover photo is optional; browse an R2 folder
+// (the "Blog" folder by default) right inside the form to pick one.
+// ─────────────────────────────────────────────
+const BLANK_POST = { id: '', title: '', content: '', image_url: '', author: '' }
+
+function BlogTab({ secret, onAuthError }) {
+  const [posts, setPosts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(null)
+  const [showBrowser, setShowBrowser] = useState(false)
+  const browser = useR2Browser(secret)
+
+  async function loadPosts() {
+    setLoading(true)
+    const res = await fetch(`/api/admin/blog?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); setLoading(false); return }
+    setPosts(data.posts)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadPosts() }, [])
+
+  function startNew() {
+    setForm({ ...BLANK_POST })
+    setShowBrowser(false)
+  }
+
+  function startEdit(p) {
+    setForm({ ...BLANK_POST, ...p })
+    setShowBrowser(false)
+  }
+
+  async function saveForm() {
+    if (!form.title) { alert('Title is required'); return }
+    const res = await fetch('/api/admin/blog', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret, post: form }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error || 'Save failed'); return }
+    setForm(null)
+    loadPosts()
+  }
+
+  async function deletePost(id) {
+    if (!confirm(`Delete this post?`)) return
+    await fetch(`/api/admin/blog?id=${encodeURIComponent(id)}&secret=${encodeURIComponent(secret)}`, { method: 'DELETE' })
+    loadPosts()
+  }
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <button style={styles.btnPrimary} onClick={startNew}>+ New Post</button>
+      </div>
+
+      {form && (
+        <div style={styles.card}>
+          <div style={styles.label}>{form.id ? 'EDIT' : 'NEW'} BLOG POST</div>
+          {form.image_url && <img src={form.image_url} alt="" style={styles.previewImg} />}
+          <input style={styles.input} placeholder="Title" value={form.title}
+            onChange={e => setForm({ ...form, title: e.target.value })} />
+          <textarea style={{ ...styles.textarea, minHeight: 140 }} placeholder="Post content" value={form.content}
+            onChange={e => setForm({ ...form, content: e.target.value })} />
+          <input style={styles.input} placeholder="Author (optional)" value={form.author}
+            onChange={e => setForm({ ...form, author: e.target.value })} />
+          <input style={styles.input} placeholder="Cover image URL (or pick one below)" value={form.image_url}
+            onChange={e => setForm({ ...form, image_url: e.target.value })} />
+          <button style={styles.btnSecondary} onClick={() => setShowBrowser(v => !v)}>
+            {showBrowser ? 'Hide photo browser' : 'Choose cover photo from R2'}
+          </button>
+          {showBrowser && (
+            <FolderBrowser
+              browser={browser}
+              existingImageUrls={[]}
+              onPick={f => { setForm({ ...form, image_url: f.url }); setShowBrowser(false) }}
+            />
+          )}
+          <div style={styles.row}>
+            <button style={styles.btnPrimary} onClick={saveForm}>Save Post</button>
+            <button style={styles.btnSecondary} onClick={() => setForm(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={styles.label}>BLOG POSTS ({posts.length})</div>
+        {loading ? <div style={styles.smallNote}>Loading…</div> : (
+          <div style={styles.entryList}>
+            {posts.map(p => (
+              <div key={p.id} style={styles.entryRow} onClick={() => startEdit(p)}>
+                {p.image_url && <img src={p.image_url} alt="" style={styles.entryThumb} />}
+                <div style={styles.entryInfo}>
+                  <div style={styles.entryName}>{p.title}</div>
+                  <div style={styles.entrySub}>{p.author || 'no author set'}</div>
+                </div>
+                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deletePost(p.id) }}>✕</button>
+              </div>
+            ))}
+            {posts.length === 0 && <div style={styles.smallNote}>No posts yet — add your first one above.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// FAQ tab — faq table. "source" tells apart WPN's own entries from the
+// ECP washing Q&As merged in alongside them; shown as a small tag.
+// ─────────────────────────────────────────────
+const BLANK_FAQ = { id: '', question: '', answer: '', source: 'wpn', sort_order: 0 }
+
+function FaqTab({ secret, onAuthError }) {
+  const [faqs, setFaqs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(null)
+
+  async function loadFaqs() {
+    setLoading(true)
+    const res = await fetch(`/api/admin/faq?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); setLoading(false); return }
+    setFaqs(data.faqs)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadFaqs() }, [])
+
+  function startNew() {
+    setForm({ ...BLANK_FAQ })
+  }
+
+  function startEdit(f) {
+    setForm({ ...BLANK_FAQ, ...f })
+  }
+
+  async function saveForm() {
+    if (!form.question || !form.answer) { alert('Question and answer are required'); return }
+    const res = await fetch('/api/admin/faq', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret, faq: form }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error || 'Save failed'); return }
+    setForm(null)
+    loadFaqs()
+  }
+
+  async function deleteFaq(id) {
+    if (!confirm(`Remove this FAQ entry?`)) return
+    await fetch(`/api/admin/faq?id=${encodeURIComponent(id)}&secret=${encodeURIComponent(secret)}`, { method: 'DELETE' })
+    loadFaqs()
+  }
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <button style={styles.btnPrimary} onClick={startNew}>+ Add FAQ</button>
+      </div>
+
+      {form && (
+        <div style={styles.card}>
+          <div style={styles.label}>{form.id ? 'EDIT' : 'ADD'} FAQ</div>
+          <input style={styles.input} placeholder="Question" value={form.question}
+            onChange={e => setForm({ ...form, question: e.target.value })} />
+          <textarea style={styles.textarea} placeholder="Answer" value={form.answer}
+            onChange={e => setForm({ ...form, answer: e.target.value })} />
+          <div style={styles.row}>
+            <input style={styles.input} placeholder="Source (e.g. wpn, ecp)" value={form.source}
+              onChange={e => setForm({ ...form, source: e.target.value })} />
+            <input style={styles.input} type="number" placeholder="Sort order" value={form.sort_order}
+              onChange={e => setForm({ ...form, sort_order: Number(e.target.value) })} />
+          </div>
+          <div style={styles.row}>
+            <button style={styles.btnPrimary} onClick={saveForm}>Save FAQ</button>
+            <button style={styles.btnSecondary} onClick={() => setForm(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={styles.label}>FAQ ENTRIES ({faqs.length})</div>
+        {loading ? <div style={styles.smallNote}>Loading…</div> : (
+          <div style={styles.entryList}>
+            {faqs.map(f => (
+              <div key={f.id} style={styles.entryRow} onClick={() => startEdit(f)}>
+                <div style={styles.entryInfo}>
+                  <div style={styles.entryName}>{f.question}</div>
+                  <div style={styles.entrySub}>{f.source}</div>
+                </div>
+                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteFaq(f.id) }}>✕</button>
+              </div>
+            ))}
+            {faqs.length === 0 && <div style={styles.smallNote}>No FAQ entries yet — add one above.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// Reviews tab — reviews table. Covers both cases: paste in a testimonial
+// manually, or approve one that came in through a future public
+// submission form (verified = 0) by ticking "verified" and saving.
+// ─────────────────────────────────────────────
+const BLANK_REVIEW = { id: '', customer_name: '', quote: '', verified: 1, sort_order: 0 }
+
+function ReviewsTab({ secret, onAuthError }) {
+  const [reviews, setReviews] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(null)
+
+  async function loadReviews() {
+    setLoading(true)
+    const res = await fetch(`/api/admin/reviews?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); setLoading(false); return }
+    setReviews(data.reviews)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadReviews() }, [])
+
+  function startNew() {
+    setForm({ ...BLANK_REVIEW })
+  }
+
+  function startEdit(r) {
+    setForm({ ...BLANK_REVIEW, ...r })
+  }
+
+  async function saveForm() {
+    if (!form.quote) { alert('Quote is required'); return }
+    const res = await fetch('/api/admin/reviews', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret, review: form }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error || 'Save failed'); return }
+    setForm(null)
+    loadReviews()
+  }
+
+  async function deleteReview(id) {
+    if (!confirm(`Delete this review?`)) return
+    await fetch(`/api/admin/reviews?id=${encodeURIComponent(id)}&secret=${encodeURIComponent(secret)}`, { method: 'DELETE' })
+    loadReviews()
+  }
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <button style={styles.btnPrimary} onClick={startNew}>+ Add Review</button>
+      </div>
+
+      {form && (
+        <div style={styles.card}>
+          <div style={styles.label}>{form.id ? 'EDIT' : 'ADD'} REVIEW</div>
+          <input style={styles.input} placeholder="Customer name (optional)" value={form.customer_name}
+            onChange={e => setForm({ ...form, customer_name: e.target.value })} />
+          <textarea style={styles.textarea} placeholder="Review quote" value={form.quote}
+            onChange={e => setForm({ ...form, quote: e.target.value })} />
+          <input style={styles.input} type="number" placeholder="Sort order" value={form.sort_order}
+            onChange={e => setForm({ ...form, sort_order: Number(e.target.value) })} />
+          <label style={{ ...styles.smallNote, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={!!form.verified}
+              onChange={e => setForm({ ...form, verified: e.target.checked ? 1 : 0 })} />
+            Verified (shows on the site — uncheck to hide/hold for review)
+          </label>
+          <div style={styles.row}>
+            <button style={styles.btnPrimary} onClick={saveForm}>Save Review</button>
+            <button style={styles.btnSecondary} onClick={() => setForm(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={styles.label}>REVIEWS ({reviews.length})</div>
+        {loading ? <div style={styles.smallNote}>Loading…</div> : (
+          <div style={styles.entryList}>
+            {reviews.map(r => (
+              <div key={r.id} style={styles.entryRow} onClick={() => startEdit(r)}>
+                <div style={styles.entryInfo}>
+                  <div style={styles.entryName}>{r.customer_name || 'Anonymous'}</div>
+                  <div style={styles.entrySub}>{r.quote.slice(0, 60)}{r.quote.length > 60 ? '…' : ''} {r.verified ? '' : '· pending'}</div>
+                </div>
+                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteReview(r.id) }}>✕</button>
+              </div>
+            ))}
+            {reviews.length === 0 && <div style={styles.smallNote}>No reviews yet — add one above.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// Feedback tab — feedback table. Read-only survey inbox (no create —
+// entries only ever come from the storefront), plus a status dropdown
+// for triage.
+//
+// NOTE: the live D1 schema doesn't have a status column yet. Run this
+// once against your database before using this tab:
+//   ALTER TABLE feedback ADD COLUMN status TEXT DEFAULT 'new';
+// ─────────────────────────────────────────────
+const FEEDBACK_STATUSES = [
+  { id: 'new', label: 'New' },
+  { id: 'reviewed', label: 'Reviewed' },
+  { id: 'archived', label: 'Archived' },
+]
+
+function FeedbackTab({ secret, onAuthError }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(null)
+
+  async function loadFeedback() {
+    setLoading(true)
+    const res = await fetch(`/api/admin/feedback?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); setLoading(false); return }
+    setItems(data.feedback)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadFeedback() }, [])
+
+  async function setStatus(id, status) {
+    setItems(items.map(it => it.id === id ? { ...it, status } : it))
+    await fetch('/api/admin/feedback', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret, id, status }),
+    })
+  }
+
+  async function deleteFeedback(id) {
+    if (!confirm(`Delete this feedback entry?`)) return
+    await fetch(`/api/admin/feedback?id=${encodeURIComponent(id)}&secret=${encodeURIComponent(secret)}`, { method: 'DELETE' })
+    loadFeedback()
+  }
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <div style={styles.label}>FEEDBACK ({items.length})</div>
+        {loading ? <div style={styles.smallNote}>Loading…</div> : (
+          <div style={styles.entryList}>
+            {items.map(it => (
+              <div key={it.id} style={{ ...styles.entryRow, flexDirection: 'column', alignItems: 'stretch', cursor: 'pointer' }}
+                onClick={() => setExpanded(expanded === it.id ? null : it.id)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={styles.entryInfo}>
+                    <div style={styles.entryName}>{it.inquiry_number || 'No inquiry #'} · {it.rating ? `${it.rating}★` : 'no rating'}</div>
+                    <div style={styles.entrySub}>{it.would_recommend || ''}</div>
+                  </div>
+                  <select style={{ ...styles.select, flex: 'none', width: 110, marginBottom: 0 }} value={it.status || 'new'}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => setStatus(it.id, e.target.value)}>
+                    {FEEDBACK_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  </select>
+                  <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteFeedback(it.id) }}>✕</button>
+                </div>
+                {expanded === it.id && (
+                  <div style={{ marginTop: 8, fontSize: 12.5, color: c.text, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div><b>Ease of ordering:</b> {it.ease_of_ordering || '—'}</div>
+                    <div><b>What could be simpler:</b> {it.what_could_be_simpler || '—'}</div>
+                    <div><b>Other comments:</b> {it.other_comments || '—'}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {items.length === 0 && <div style={styles.smallNote}>No feedback submitted yet.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// Settings tab — settings table (key/value). No fixed shape, so this is
+// just a plain editable list of rows rather than a form matching a
+// specific schema.
+// ─────────────────────────────────────────────
+const SUGGESTED_SETTINGS_KEYS = ['adminPassword', 'categories', 'shopLogoUrl', 'merchantEmail', 'merchantPhone']
+
+function SettingsTab({ secret, onAuthError }) {
+  const [settings, setSettings] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState(null)
+
+  async function loadSettings() {
+    setLoading(true)
+    const res = await fetch(`/api/admin/settings?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); setLoading(false); return }
+    setSettings(data.settings)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadSettings() }, [])
+
+  function startNew() {
+    setForm({ key: '', value: '' })
+  }
+
+  function startEdit(s) {
+    setForm({ ...s })
+  }
+
+  async function saveForm() {
+    if (!form.key) { alert('Key is required'); return }
+    const res = await fetch('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret, key: form.key, value: form.value }),
+    })
+    const data = await res.json()
+    if (!res.ok) { alert(data.error || 'Save failed'); return }
+    setForm(null)
+    loadSettings()
+  }
+
+  async function deleteSetting(key) {
+    if (!confirm(`Remove the "${key}" setting?`)) return
+    await fetch(`/api/admin/settings?key=${encodeURIComponent(key)}&secret=${encodeURIComponent(secret)}`, { method: 'DELETE' })
+    loadSettings()
+  }
+
+  const existingKeys = settings.map(s => s.key)
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <button style={styles.btnPrimary} onClick={startNew}>+ Add Setting</button>
+        <div style={styles.smallNote}>Suggested keys: {SUGGESTED_SETTINGS_KEYS.filter(k => !existingKeys.includes(k)).join(', ') || 'all set'}</div>
+      </div>
+
+      {form && (
+        <div style={styles.card}>
+          <div style={styles.label}>{existingKeys.includes(form.key) ? 'EDIT' : 'ADD'} SETTING</div>
+          <input style={styles.input} placeholder="Key (e.g. merchantEmail)" value={form.key}
+            onChange={e => setForm({ ...form, key: e.target.value })} />
+          <textarea style={styles.textarea} placeholder="Value" value={form.value}
+            onChange={e => setForm({ ...form, value: e.target.value })} />
+          <div style={styles.row}>
+            <button style={styles.btnPrimary} onClick={saveForm}>Save Setting</button>
+            <button style={styles.btnSecondary} onClick={() => setForm(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={styles.label}>SETTINGS ({settings.length})</div>
+        {loading ? <div style={styles.smallNote}>Loading…</div> : (
+          <div style={styles.entryList}>
+            {settings.map(s => (
+              <div key={s.key} style={styles.entryRow} onClick={() => startEdit(s)}>
+                <div style={styles.entryInfo}>
+                  <div style={styles.entryName}>{s.key}</div>
+                  <div style={styles.entrySub}>{(s.value || '').slice(0, 60)}</div>
+                </div>
+                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteSetting(s.key) }}>✕</button>
+              </div>
+            ))}
+            {settings.length === 0 && <div style={styles.smallNote}>No settings saved yet — add one above.</div>}
           </div>
         )}
       </div>
