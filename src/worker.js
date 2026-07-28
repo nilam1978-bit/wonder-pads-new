@@ -65,6 +65,21 @@ export default {
       return handleAdminBacking(request, url, env);
     }
 
+    // 7c. Admin catalog — CRUD for the size-options table (D1)
+    if (url.pathname === '/api/admin/sizes') {
+      return handleAdminSizes(request, url, env);
+    }
+
+    // 7d. Admin catalog — CRUD for the absorbency-options table (D1)
+    if (url.pathname === '/api/admin/absorbency') {
+      return handleAdminAbsorbency(request, url, env);
+    }
+
+    // 7e. Admin catalog — CRUD for the shape-options table (D1)
+    if (url.pathname === '/api/admin/shapes') {
+      return handleAdminShapes(request, url, env);
+    }
+
     // 8. Public reads — for the storefront to eventually switch from
     //    static config.json to live D1 data (not wired up yet, see note
     //    at the bottom of this file)
@@ -76,6 +91,15 @@ export default {
     }
     if (url.pathname === '/api/backing' && request.method === 'GET') {
       return handlePublicBacking(env);
+    }
+    if (url.pathname === '/api/sizes' && request.method === 'GET') {
+      return handlePublicSizes(env);
+    }
+    if (url.pathname === '/api/absorbency' && request.method === 'GET') {
+      return handlePublicAbsorbency(env);
+    }
+    if (url.pathname === '/api/shapes' && request.method === 'GET') {
+      return handlePublicShapes(env);
     }
 
     // Everything else — your normal built site
@@ -621,6 +645,207 @@ async function handleAdminBacking(request, url, env) {
 }
 
 // ─────────────────────────────────────────────
+// 7c. Admin catalog — size_options table (D1)
+//    Same GET / POST / DELETE shape as fabrics, above. Column names
+//    confirmed against the live schema via sqlite_master.
+// ─────────────────────────────────────────────
+async function handleAdminSizes(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM size_options ORDER BY sort_order, length_inches'
+    ).all();
+    return jsonResponse({ sizes: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const s = body.size || {};
+    if (!s.id || !s.name) {
+      return jsonResponse({ error: 'size.id and size.name are required' }, 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO size_options (id, name, length_inches, width_cm, description, price_base, best_for, color_label, min_length, max_length, layer_upgrade, backing_upgrade, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         length_inches = excluded.length_inches,
+         width_cm = excluded.width_cm,
+         description = excluded.description,
+         price_base = excluded.price_base,
+         best_for = excluded.best_for,
+         color_label = excluded.color_label,
+         min_length = excluded.min_length,
+         max_length = excluded.max_length,
+         layer_upgrade = excluded.layer_upgrade,
+         backing_upgrade = excluded.backing_upgrade,
+         sort_order = excluded.sort_order`
+    )
+      .bind(
+        s.id,
+        s.name,
+        s.length_inches || 0,
+        s.width_cm || 0,
+        s.description || '',
+        s.price_base || 0,
+        s.best_for || '',
+        s.color_label || '',
+        s.min_length || 0,
+        s.max_length || 0,
+        s.layer_upgrade || 0,
+        s.backing_upgrade || 0,
+        s.sort_order || 0
+      )
+      .run();
+    return jsonResponse({ success: true });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM size_options WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
+// 7d. Admin catalog — absorbency_options table (D1)
+// ─────────────────────────────────────────────
+async function handleAdminAbsorbency(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM absorbency_options ORDER BY sort_order, core_layers'
+    ).all();
+    return jsonResponse({ absorbency: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const a = body.absorbency || {};
+    if (!a.id || !a.name) {
+      return jsonResponse({ error: 'absorbency.id and absorbency.name are required' }, 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO absorbency_options (id, name, core_layers, description, icon, price_modifier, capacity_ml, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         core_layers = excluded.core_layers,
+         description = excluded.description,
+         icon = excluded.icon,
+         price_modifier = excluded.price_modifier,
+         capacity_ml = excluded.capacity_ml,
+         sort_order = excluded.sort_order`
+    )
+      .bind(
+        a.id,
+        a.name,
+        a.core_layers || 1,
+        a.description || '',
+        a.icon || '',
+        a.price_modifier || 0,
+        a.capacity_ml || 0,
+        a.sort_order || 0
+      )
+      .run();
+    return jsonResponse({ success: true });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM absorbency_options WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
+// 7e. Admin catalog — shape_options table (D1). Simplest of the three —
+//    just id, name, description.
+// ─────────────────────────────────────────────
+async function handleAdminShapes(request, url, env) {
+  if (request.method === 'GET') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM shape_options ORDER BY sort_order, name'
+    ).all();
+    return jsonResponse({ shapes: results });
+  }
+
+  if (request.method === 'POST') {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Bad request body' }, 400);
+    }
+    if (body.secret !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const sh = body.shape || {};
+    if (!sh.id || !sh.name) {
+      return jsonResponse({ error: 'shape.id and shape.name are required' }, 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO shape_options (id, name, description, sort_order)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         description = excluded.description,
+         sort_order = excluded.sort_order`
+    )
+      .bind(sh.id, sh.name, sh.description || '', sh.sort_order || 0)
+      .run();
+    return jsonResponse({ success: true });
+  }
+
+  if (request.method === 'DELETE') {
+    if (url.searchParams.get('secret') !== APP_SECRET) {
+      return jsonResponse({ error: 'Wrong secret' }, 403);
+    }
+    const id = url.searchParams.get('id');
+    if (!id) return jsonResponse({ error: 'id is required' }, 400);
+    await env.DB.prepare('DELETE FROM shape_options WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  return jsonResponse({ error: 'Method not allowed' }, 405);
+}
+
+// ─────────────────────────────────────────────
 // 8. Public reads — no secret required. Not wired into the storefront
 //    yet (App.jsx still reads the static /config.json) — that's the
 //    next step once the D1 catalog actually has real data in it.
@@ -644,6 +869,27 @@ async function handlePublicBacking(env) {
     "SELECT * FROM fabrics_backing WHERE stock_status != 'hidden' ORDER BY name"
   ).all();
   return jsonResponse({ backings: results });
+}
+
+async function handlePublicSizes(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM size_options ORDER BY sort_order, length_inches'
+  ).all();
+  return jsonResponse({ sizes: results });
+}
+
+async function handlePublicAbsorbency(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM absorbency_options ORDER BY sort_order, core_layers'
+  ).all();
+  return jsonResponse({ absorbency: results });
+}
+
+async function handlePublicShapes(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM shape_options ORDER BY sort_order, name'
+  ).all();
+  return jsonResponse({ shapes: results });
 }
 
 // ─────────────────────────────────────────────
