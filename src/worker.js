@@ -17,6 +17,152 @@
 
 const APP_SECRET = 'wonderpads-2026';
 
+// ─────────────────────────────────────────────
+// 0. Admin panel auth — real username/password login backed by the
+//    admin_users table (username TEXT PRIMARY KEY, password_hash TEXT).
+//    Sessions are stateless signed tokens (HMAC-SHA256 over a JSON
+//    payload, keyed with APP_SECRET) so there's no sessions table to
+//    manage — a token is valid if its signature checks out and it
+//    hasn't expired. isAuthed() accepts EITHER a valid session token OR
+//    the raw APP_SECRET, so every endpoint that used to gate on
+//    APP_SECRET keeps working exactly as before if you ever need to
+//    fall back to it; nothing that used the old shared secret breaks.
+// ─────────────────────────────────────────────
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function bytesToHex(bytes) {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+function hexToBytes(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return bytes;
+}
+function base64UrlEncode(bytes) {
+  let str = '';
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function base64UrlDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  const bin = atob(str);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function hmacKey() {
+  return crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(APP_SECRET),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+}
+
+async function signSessionToken(username) {
+  const payload = JSON.stringify({ u: username, exp: Date.now() + SESSION_DURATION_MS });
+  const payloadB64 = base64UrlEncode(new TextEncoder().encode(payload));
+  const key = await hmacKey();
+  const sigBuf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payloadB64));
+  return { token: `${payloadB64}.${base64UrlEncode(new Uint8Array(sigBuf))}`, expiresAt: JSON.parse(payload).exp };
+}
+
+async function verifySessionToken(token) {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null;
+  const [payloadB64, sigB64] = token.split('.');
+  try {
+    const key = await hmacKey();
+    const valid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      base64UrlDecode(sigB64),
+      new TextEncoder().encode(payloadB64)
+    );
+    if (!valid) return null;
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
+    if (!payload.exp || Date.now() > payload.exp) return null;
+    return payload.u;
+  } catch {
+    return null;
+  }
+}
+
+// True if `value` is either a still-valid session token or the raw
+// master secret. Use this everywhere the old code did `x !== APP_SECRET`.
+async function isAuthed(value) {
+  if (!value) return false;
+  if (value === APP_SECRET) return true;
+  return !!(await verifySessionToken(value));
+}
+
+async function hashPassword(password, saltHex) {
+  const salt = saltHex ? hexToBytes(saltHex) : crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256);
+  return `${bytesToHex(salt)}:${bytesToHex(new Uint8Array(bits))}`;
+}
+
+async function verifyPassword(password, stored) {
+  if (!stored || !stored.includes(':')) return false;
+  const [saltHex] = stored.split(':');
+  return (await hashPassword(password, saltHex)) === stored;
+}
+
+async function handleAdminLogin(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Bad request body' }, 400);
+  }
+  const { username, password } = body;
+  if (!username || !password) {
+    return jsonResponse({ error: 'Username and password are required' }, 400);
+  }
+  const row = await env.DB.prepare('SELECT username, password_hash FROM admin_users WHERE username = ?')
+    .bind(username)
+    .first();
+  if (!row || !(await verifyPassword(password, row.password_hash))) {
+    return jsonResponse({ error: 'Wrong username or password' }, 401);
+  }
+  const { token, expiresAt } = await signSessionToken(username);
+  return jsonResponse({ success: true, token, expiresAt });
+}
+
+// One admin account only. Gated by the master secret (APP_SECRET) rather
+// than a session token, since this is how you create the very first
+// account — there's no session to have yet — and also how you reset the
+// password later if you forget it.
+async function handleAdminSetupAccount(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Bad request body' }, 400);
+  }
+  const { masterSecret, username, password } = body;
+  if (masterSecret !== APP_SECRET) {
+    return jsonResponse({ error: 'Wrong master secret' }, 403);
+  }
+  if (!username || !password) {
+    return jsonResponse({ error: 'Username and password are required' }, 400);
+  }
+  if (password.length < 8) {
+    return jsonResponse({ error: 'Password must be at least 8 characters' }, 400);
+  }
+  const passwordHash = await hashPassword(password);
+  await env.DB.prepare(
+    `INSERT INTO admin_users (username, password_hash) VALUES (?, ?)
+     ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash`
+  )
+    .bind(username, passwordHash)
+    .run();
+  return jsonResponse({ success: true });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -48,6 +194,14 @@ export default {
     // 5. Admin catalog — lists what's already sitting in an R2 folder
     if (url.pathname === '/api/r2-list' && request.method === 'GET') {
       return handleR2List(url, env);
+    }
+
+    // 5b. Admin panel auth — login and one-time account setup/reset
+    if (url.pathname === '/api/admin/login' && request.method === 'POST') {
+      return handleAdminLogin(request, env);
+    }
+    if (url.pathname === '/api/admin/setup-account' && request.method === 'POST') {
+      return handleAdminSetupAccount(request, env);
     }
 
     // 6. Admin catalog — CRUD for the fabrics table (D1)
@@ -451,7 +605,7 @@ document.getElementById('copyBtn').addEventListener('click', () => {
 // ─────────────────────────────────────────────
 async function handleR2List(url, env) {
   const secret = url.searchParams.get('secret');
-  if (secret !== APP_SECRET) {
+  if (!(await isAuthed(secret))) {
     return jsonResponse({ error: 'Wrong secret' }, 403);
   }
 
@@ -480,7 +634,7 @@ async function handleR2List(url, env) {
 // ─────────────────────────────────────────────
 async function handleAdminFabrics(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -496,7 +650,7 @@ async function handleAdminFabrics(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const f = body.fabric || {};
@@ -534,7 +688,7 @@ async function handleAdminFabrics(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -562,7 +716,7 @@ async function handleAdminFabricsBulk(request, env) {
   } catch {
     return jsonResponse({ error: 'Bad request body' }, 400);
   }
-  if (body.secret !== APP_SECRET) {
+  if (!(await isAuthed(body.secret))) {
     return jsonResponse({ error: 'Wrong secret' }, 403);
   }
   const list = Array.isArray(body.fabrics) ? body.fabrics : [];
@@ -615,7 +769,7 @@ async function handleAdminFabricsBulk(request, env) {
 // ─────────────────────────────────────────────
 async function handleAdminStock(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -631,7 +785,7 @@ async function handleAdminStock(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const s = body.stock || {};
@@ -663,7 +817,7 @@ async function handleAdminStock(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -686,7 +840,7 @@ async function handleAdminStockBulk(request, env) {
   } catch {
     return jsonResponse({ error: 'Bad request body' }, 400);
   }
-  if (body.secret !== APP_SECRET) {
+  if (!(await isAuthed(body.secret))) {
     return jsonResponse({ error: 'Wrong secret' }, 403);
   }
   const list = Array.isArray(body.stocks) ? body.stocks : [];
@@ -734,7 +888,7 @@ async function handleAdminStockBulk(request, env) {
 // ─────────────────────────────────────────────
 async function handleAdminBacking(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -750,7 +904,7 @@ async function handleAdminBacking(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const b = body.backing || {};
@@ -792,7 +946,7 @@ async function handleAdminBacking(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -811,7 +965,7 @@ async function handleAdminBacking(request, url, env) {
 // ─────────────────────────────────────────────
 async function handleAdminSizes(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -827,7 +981,7 @@ async function handleAdminSizes(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const s = body.size || {};
@@ -871,7 +1025,7 @@ async function handleAdminSizes(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -888,7 +1042,7 @@ async function handleAdminSizes(request, url, env) {
 // ─────────────────────────────────────────────
 async function handleAdminAbsorbency(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -904,7 +1058,7 @@ async function handleAdminAbsorbency(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const a = body.absorbency || {};
@@ -938,7 +1092,7 @@ async function handleAdminAbsorbency(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -956,7 +1110,7 @@ async function handleAdminAbsorbency(request, url, env) {
 // ─────────────────────────────────────────────
 async function handleAdminShapes(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -972,7 +1126,7 @@ async function handleAdminShapes(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const sh = body.shape || {};
@@ -993,7 +1147,7 @@ async function handleAdminShapes(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -1021,7 +1175,7 @@ function slugify(text) {
 
 async function handleAdminBlog(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -1037,7 +1191,7 @@ async function handleAdminBlog(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const p = body.post || {};
@@ -1060,7 +1214,7 @@ async function handleAdminBlog(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -1080,7 +1234,7 @@ async function handleAdminBlog(request, url, env) {
 // ─────────────────────────────────────────────
 async function handleAdminFaq(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -1096,7 +1250,7 @@ async function handleAdminFaq(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const f = body.faq || {};
@@ -1119,7 +1273,7 @@ async function handleAdminFaq(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -1140,7 +1294,7 @@ async function handleAdminFaq(request, url, env) {
 // ─────────────────────────────────────────────
 async function handleAdminReviews(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -1156,7 +1310,7 @@ async function handleAdminReviews(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const r = body.review || {};
@@ -1179,7 +1333,7 @@ async function handleAdminReviews(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -1201,7 +1355,7 @@ async function handleAdminReviews(request, url, env) {
 // ─────────────────────────────────────────────
 async function handleAdminFeedback(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -1218,7 +1372,7 @@ async function handleAdminFeedback(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     if (!body.id || !body.status) {
@@ -1231,7 +1385,7 @@ async function handleAdminFeedback(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const id = url.searchParams.get('id');
@@ -1250,7 +1404,7 @@ async function handleAdminFeedback(request, url, env) {
 // ─────────────────────────────────────────────
 async function handleAdminSettings(request, url, env) {
   if (request.method === 'GET') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const { results } = await env.DB.prepare(
@@ -1266,7 +1420,7 @@ async function handleAdminSettings(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Bad request body' }, 400);
     }
-    if (body.secret !== APP_SECRET) {
+    if (!(await isAuthed(body.secret))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const key = body.key;
@@ -1283,7 +1437,7 @@ async function handleAdminSettings(request, url, env) {
   }
 
   if (request.method === 'DELETE') {
-    if (url.searchParams.get('secret') !== APP_SECRET) {
+    if (!(await isAuthed(url.searchParams.get('secret')))) {
       return jsonResponse({ error: 'Wrong secret' }, 403);
     }
     const key = url.searchParams.get('key');
