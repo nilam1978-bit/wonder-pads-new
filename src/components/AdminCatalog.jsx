@@ -57,7 +57,8 @@ export default function AdminCatalog({ onBack }) {
   const [setupUsername, setSetupUsername] = useState('')
   const [setupPassword, setSetupPassword] = useState('')
 
-  const [tab, setTab] = useState('fabrics') // see TABS array below for all valid ids
+  const [tab, setTab] = useState('fabrics') // see SHOP_TABS array below for all valid ids
+  const [section, setSection] = useState('shop') // 'shop' | 'settings' — sidebar selection
 
   // Restore a still-valid session on page load, so logging in once sticks
   // around instead of asking again every visit.
@@ -217,41 +218,82 @@ export default function AdminCatalog({ onBack }) {
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.topBar}>
+    <div style={styles.shell} className="wpn-admin-shell">
+      <style>{`
+        @media (max-width: 760px) {
+          .wpn-admin-shell { flex-direction: column !important; }
+          .wpn-admin-sidebar { width: 100% !important; flex-direction: row !important; align-items: center !important; overflow-x: auto; border-right: none !important; border-bottom: 1.5px solid ${c.border}; padding: 10px 14px !important; gap: 10px !important; }
+          .wpn-admin-sidebar-stack { display: none !important; }
+        }
+      `}</style>
+      <div style={styles.sidebar} className="wpn-admin-sidebar">
+        <div style={styles.sidebarBrand}>
+          <div style={styles.sidebarLogo}>WP</div>
+          <div className="wpn-admin-sidebar-stack">
+            <div style={styles.sidebarBrandName}>Wonder Pads</div>
+            <div style={styles.sidebarBrandSub}>BACK OFFICE</div>
+          </div>
+        </div>
+        <div style={styles.sidebarNavLabel} className="wpn-admin-sidebar-stack">NAVIGATION</div>
+        <button
+          style={{ ...styles.sidebarNavItem, ...(section === 'shop' ? styles.sidebarNavItemActive : {}), width: 'auto' }}
+          onClick={() => setSection('shop')}
+        >
+          🛍️ Shop
+        </button>
+        <button
+          style={{ ...styles.sidebarNavItem, ...(section === 'settings' ? styles.sidebarNavItemActive : {}), width: 'auto' }}
+          onClick={() => setSection('settings')}
+        >
+          ⚙️ Settings
+        </button>
+        <div style={{ flex: 1 }} className="wpn-admin-sidebar-stack" />
         <button style={styles.linkBtn} onClick={onBack}>← Back to site</button>
-        <div style={styles.topTitle}>Admin Catalog</div>
-        <button style={styles.linkBtn} onClick={logOut}>Log out</button>
+        <button style={styles.linkBtn} onClick={logOut}>Log out{session?.username ? ` (${session.username})` : ''}</button>
       </div>
 
-      <div style={styles.tabRow}>
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            style={{ ...styles.tab, ...(tab === t.id ? styles.tabActive : {}) }}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <div style={styles.main}>
+        <div style={styles.mainTopRow}>
+          <div style={styles.pageTitle}>
+            {section === 'settings' ? 'Settings' : (SHOP_TABS.find(t => t.id === tab) || SHOP_TABS[0]).label}
+          </div>
+          {section === 'shop' && (
+            <div style={styles.pillRow}>
+              {SHOP_TABS.map(t => (
+                <button
+                  key={t.id}
+                  style={{ ...styles.pill, ...(tab === t.id ? styles.pillActive : {}) }}
+                  onClick={() => setTab(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-      {tab === 'fabrics' && <FabricsTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'stock' && <StockTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'backing' && <BackingTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'sizes' && <SizesTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'absorbency' && <AbsorbencyTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'shapes' && <ShapesTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'blog' && <BlogTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'faq' && <FaqTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'reviews' && <ReviewsTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'feedback' && <FeedbackTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'settings' && <SettingsTab secret={secret} onAuthError={handleChildAuthError} />}
+        {section === 'settings' ? (
+          <SettingsTab secret={secret} onAuthError={handleChildAuthError} />
+        ) : (
+          <>
+            {tab === 'fabrics' && <FabricsTab secret={secret} onAuthError={handleChildAuthError} />}
+            {tab === 'stock' && <StockTab secret={secret} onAuthError={handleChildAuthError} />}
+            {tab === 'backing' && <BackingTab secret={secret} onAuthError={handleChildAuthError} />}
+            {tab === 'sizes' && <SizesTab secret={secret} onAuthError={handleChildAuthError} />}
+            {tab === 'absorbency' && <AbsorbencyTab secret={secret} onAuthError={handleChildAuthError} />}
+            {tab === 'shapes' && <ShapesTab secret={secret} onAuthError={handleChildAuthError} />}
+            {tab === 'blog' && <BlogTab secret={secret} onAuthError={handleChildAuthError} />}
+            {tab === 'faq' && <FaqTab secret={secret} onAuthError={handleChildAuthError} />}
+            {tab === 'reviews' && <ReviewsTab secret={secret} onAuthError={handleChildAuthError} />}
+            {tab === 'feedback' && <FeedbackTab secret={secret} onAuthError={handleChildAuthError} />}
+          </>
+        )}
+      </div>
     </div>
   )
 }
 
-const TABS = [
+const SHOP_TABS = [
   { id: 'fabrics', label: 'Fabrics' },
   { id: 'stock', label: 'Ready-Made Stock' },
   { id: 'backing', label: 'Backing Fabrics' },
@@ -262,7 +304,6 @@ const TABS = [
   { id: 'faq', label: 'FAQ' },
   { id: 'reviews', label: 'Reviews' },
   { id: 'feedback', label: 'Feedback' },
-  { id: 'settings', label: 'Settings' },
 ]
 
 // ─────────────────────────────────────────────
@@ -339,6 +380,8 @@ function FabricsTab({ secret, onAuthError }) {
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState(null) // { id, name, category, material, description, color_hex, image_url, premium }
   const [showBulk, setShowBulk] = useState(false)
+  const [search, setSearch] = useState('')
+  const [collapsed, setCollapsed] = useState(() => new Set())
   const browser = useR2Browser(secret)
 
   async function loadFabrics() {
@@ -385,14 +428,39 @@ function FabricsTab({ secret, onAuthError }) {
     loadFabrics()
   }
 
+  function toggleCategory(cat) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat); else next.add(cat)
+      return next
+    })
+  }
+
   const existingUrls = fabrics.map(f => f.image_url).filter(Boolean)
+  const filtered = fabrics.filter(f => f.name.toLowerCase().includes(search.toLowerCase()))
+  const byCategory = {}
+  for (const f of filtered) {
+    const cat = f.category || 'General'
+    if (!byCategory[cat]) byCategory[cat] = []
+    byCategory[cat].push(f)
+  }
+  const categoryNames = Object.keys(byCategory).sort()
+  const searching = search.trim().length > 0
 
   return (
     <div>
       <div style={styles.card}>
-        <button style={styles.btnSecondary} onClick={() => setShowBulk(v => !v)}>
-          {showBulk ? 'Hide Bulk Fabric Import' : '📦 Bulk Fabric Import'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            style={styles.searchInput}
+            placeholder="🔍 Search fabrics..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <button style={styles.btnSecondary} onClick={() => setShowBulk(v => !v)}>
+            {showBulk ? 'Hide Bulk Fabric Import' : '📦 Bulk Fabric Import'}
+          </button>
+        </div>
       </div>
 
       {showBulk && (
@@ -431,24 +499,33 @@ function FabricsTab({ secret, onAuthError }) {
         </div>
       )}
 
-      <div style={styles.card}>
-        <div style={styles.label}>CATALOG ({fabrics.length})</div>
-        {loading ? <div style={styles.smallNote}>Loading…</div> : (
-          <div style={styles.entryList}>
-            {fabrics.map(f => (
-              <div key={f.id} style={styles.entryRow}>
-                {f.image_url && <img src={f.image_url} alt="" style={styles.entryThumb} />}
-                <div style={styles.entryInfo}>
-                  <div style={styles.entryName}>{f.name}</div>
-                  <div style={styles.entrySub}>{f.category} · {f.material || 'no material set'} · {f.stock_status}</div>
-                </div>
-                <button style={styles.deleteBtn} onClick={() => deleteFabric(f.id)}>✕</button>
+      {loading ? <div style={styles.smallNote}>Loading…</div> : categoryNames.length === 0 ? (
+        <div style={styles.card}><div style={styles.smallNote}>No fabrics match "{search}" yet — browse a folder above to add one.</div></div>
+      ) : categoryNames.map(cat => {
+        const isOpen = searching || !collapsed.has(cat)
+        return (
+          <div key={cat}>
+            <div style={styles.categoryPill} onClick={() => toggleCategory(cat)}>
+              <span>{cat.toUpperCase()} <span style={styles.categoryCount}>{byCategory[cat].length} print{byCategory[cat].length === 1 ? '' : 's'}</span></span>
+              <span>{isOpen ? '▲' : '▼'}</span>
+            </div>
+            {isOpen && (
+              <div style={{ ...styles.entryList, marginBottom: 14 }}>
+                {byCategory[cat].map(f => (
+                  <div key={f.id} style={styles.entryRow}>
+                    {f.image_url && <img src={f.image_url} alt="" style={styles.entryThumb} />}
+                    <div style={styles.entryInfo}>
+                      <div style={styles.entryName}>{f.name}</div>
+                      <div style={styles.entrySub}>{f.material || 'no material set'} · {f.stock_status}</div>
+                    </div>
+                    <button style={styles.deleteBtn} onClick={() => deleteFabric(f.id)}>✕</button>
+                  </div>
+                ))}
               </div>
-            ))}
-            {fabrics.length === 0 && <div style={styles.smallNote}>No fabrics saved yet — browse a folder above to add your first one.</div>}
+            )}
           </div>
-        )}
-      </div>
+        )
+      })}
     </div>
   )
 }
@@ -686,6 +763,8 @@ function StockTab({ secret, onAuthError }) {
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState(null)
   const [showBulk, setShowBulk] = useState(false)
+  const [search, setSearch] = useState('')
+  const [collapsed, setCollapsed] = useState(() => new Set())
   const browser = useR2Browser(secret)
 
   async function loadStocks() {
@@ -731,14 +810,32 @@ function StockTab({ secret, onAuthError }) {
     loadStocks()
   }
 
+  function toggleCategory(cat) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat); else next.add(cat)
+      return next
+    })
+  }
+
   const existingUrls = stocks.map(s => s.image_url).filter(Boolean)
+  const filtered = stocks.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
+  const searching = search.trim().length > 0
 
   return (
     <div>
       <div style={styles.card}>
-        <button style={styles.btnSecondary} onClick={() => setShowBulk(v => !v)}>
-          {showBulk ? 'Hide Bulk Lookbook Import' : '🚀 Bulk Lookbook Import'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            style={styles.searchInput}
+            placeholder="🔍 Search ready-made pads..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <button style={styles.btnSecondary} onClick={() => setShowBulk(v => !v)}>
+            {showBulk ? 'Hide Bulk Lookbook Import' : '🚀 Bulk Lookbook Import'}
+          </button>
+        </div>
       </div>
 
       {showBulk && (
@@ -777,24 +874,39 @@ function StockTab({ secret, onAuthError }) {
         </div>
       )}
 
-      <div style={styles.card}>
-        <div style={styles.label}>READY-MADE STOCK ({stocks.length})</div>
-        {loading ? <div style={styles.smallNote}>Loading…</div> : (
-          <div style={styles.entryList}>
-            {stocks.map(s => (
-              <div key={s.id} style={styles.entryRow}>
-                {s.image_url && <img src={s.image_url} alt="" style={styles.entryThumb} />}
-                <div style={styles.entryInfo}>
-                  <div style={styles.entryName}>{s.name}</div>
-                  <div style={styles.entrySub}>{s.size_category} · S${Number(s.price).toFixed(2)} · qty {s.qty_available}</div>
-                </div>
-                <button style={styles.deleteBtn} onClick={() => deleteStock(s.id)}>✕</button>
+      {loading ? <div style={styles.smallNote}>Loading…</div> : (() => {
+        const knownIds = SIZE_CATEGORIES.map(sc => sc.id)
+        const extraIds = [...new Set(filtered.map(s => s.size_category).filter(id => !knownIds.includes(id)))]
+        const allCats = [...SIZE_CATEGORIES, ...extraIds.map(id => ({ id, name: id }))]
+        return allCats.map(sc => {
+          const items = filtered.filter(s => s.size_category === sc.id)
+          if (!searching && items.length === 0 && !knownIds.includes(sc.id)) return null
+          const isOpen = searching || !collapsed.has(sc.id)
+          return (
+            <div key={sc.id}>
+              <div style={styles.categoryPill} onClick={() => toggleCategory(sc.id)}>
+                <span>{sc.name.toUpperCase()} CATEGORY <span style={styles.categoryCount}>{items.length} in catalog</span></span>
+                <span>{isOpen ? '▲' : '▼'}</span>
               </div>
-            ))}
-            {stocks.length === 0 && <div style={styles.smallNote}>No stock items saved yet — browse a folder above to add your first one.</div>}
-          </div>
-        )}
-      </div>
+              {isOpen && (
+                <div style={{ ...styles.entryList, marginBottom: 14 }}>
+                  {items.map(s => (
+                    <div key={s.id} style={styles.entryRow}>
+                      {s.image_url && <img src={s.image_url} alt="" style={styles.entryThumb} />}
+                      <div style={styles.entryInfo}>
+                        <div style={styles.entryName}>{s.name}</div>
+                        <div style={styles.entrySub}>S${Number(s.price).toFixed(2)} · qty {s.qty_available}</div>
+                      </div>
+                      <button style={styles.deleteBtn} onClick={() => deleteStock(s.id)}>✕</button>
+                    </div>
+                  ))}
+                  {items.length === 0 && <div style={styles.smallNote}>No ready stock in this category.</div>}
+                </div>
+              )}
+            </div>
+          )
+        })
+      })()}
     </div>
   )
 }
@@ -981,7 +1093,13 @@ function SizesTab({ secret, onAuthError }) {
   return (
     <div>
       <div style={styles.card}>
-        <button style={styles.btnPrimary} onClick={startNew}>+ Add Size</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={styles.label}>PAD SIZES & PRICING MANAGEMENT</div>
+            <div style={styles.smallNote}>Configure sizing, base price, and upgrade add-ons.</div>
+          </div>
+          <button style={{ ...styles.btnPrimary, flex: 'none' }} onClick={startNew}>+ Add Pad Size</button>
+        </div>
       </div>
 
       {form && (
@@ -1033,22 +1151,39 @@ function SizesTab({ secret, onAuthError }) {
         </div>
       )}
 
-      <div style={styles.card}>
-        <div style={styles.label}>SIZES ({sizes.length})</div>
-        {loading ? <div style={styles.smallNote}>Loading…</div> : (
-          <div style={styles.entryList}>
+      <div style={styles.tableWrap}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Size ID</th>
+              <th style={styles.th}>Display Label</th>
+              <th style={styles.th}>Length</th>
+              <th style={styles.th}>Base Price (S$)</th>
+              <th style={styles.th}>Backing Upgrade</th>
+              <th style={styles.th}>Layer Upgrade</th>
+              <th style={styles.th}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
             {sizes.map(s => (
-              <div key={s.id} style={styles.entryRow} onClick={() => startEdit(s)}>
-                <div style={styles.entryInfo}>
-                  <div style={styles.entryName}>{s.name}</div>
-                  <div style={styles.entrySub}>{s.length_inches}" · S${Number(s.price_base).toFixed(2)} · {s.best_for || 'no "best for" set'}</div>
-                </div>
-                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteSize(s.id) }}>✕</button>
-              </div>
+              <tr key={s.id}>
+                <td style={styles.td}>{s.id}</td>
+                <td style={styles.td}>{s.name}</td>
+                <td style={styles.td}>{s.length_inches}"</td>
+                <td style={styles.td}>S${Number(s.price_base || 0).toFixed(2)}</td>
+                <td style={styles.td}>{s.backing_upgrade ? `S$${Number(s.backing_upgrade).toFixed(2)}` : '—'}</td>
+                <td style={styles.td}>{s.layer_upgrade ? `S$${Number(s.layer_upgrade).toFixed(2)}` : '—'}</td>
+                <td style={styles.td}>
+                  <button style={styles.tableActionBtn} onClick={() => startEdit(s)}>Edit</button>
+                  <button style={{ ...styles.tableActionBtn, color: '#c0392b' }} onClick={() => deleteSize(s.id)}>Delete</button>
+                </td>
+              </tr>
             ))}
-            {sizes.length === 0 && <div style={styles.smallNote}>No sizes saved yet — add one above.</div>}
-          </div>
-        )}
+            {sizes.length === 0 && (
+              <tr><td style={styles.td} colSpan={7}>{loading ? 'Loading…' : 'No sizes saved yet — add one above.'}</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -1108,7 +1243,13 @@ function AbsorbencyTab({ secret, onAuthError }) {
   return (
     <div>
       <div style={styles.card}>
-        <button style={styles.btnPrimary} onClick={startNew}>+ Add Absorbency Level</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={styles.label}>ABSORBENCY LEVEL MANAGEMENT</div>
+            <div style={styles.smallNote}>Configure core layers, capacity, and price add-ons.</div>
+          </div>
+          <button style={{ ...styles.btnPrimary, flex: 'none' }} onClick={startNew}>+ Add Absorbency Level</button>
+        </div>
       </div>
 
       {form && (
@@ -1141,22 +1282,37 @@ function AbsorbencyTab({ secret, onAuthError }) {
         </div>
       )}
 
-      <div style={styles.card}>
-        <div style={styles.label}>ABSORBENCY LEVELS ({levels.length})</div>
-        {loading ? <div style={styles.smallNote}>Loading…</div> : (
-          <div style={styles.entryList}>
+      <div style={styles.tableWrap}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Level ID</th>
+              <th style={styles.th}>Display Label</th>
+              <th style={styles.th}>Core Layers</th>
+              <th style={styles.th}>Capacity (ml)</th>
+              <th style={styles.th}>Price Modifier (S$)</th>
+              <th style={styles.th}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
             {levels.map(a => (
-              <div key={a.id} style={styles.entryRow} onClick={() => startEdit(a)}>
-                <div style={styles.entryInfo}>
-                  <div style={styles.entryName}>{a.name}</div>
-                  <div style={styles.entrySub}>{a.core_layers} layer{a.core_layers === 1 ? '' : 's'} · {a.capacity_ml}ml · +S${Number(a.price_modifier).toFixed(2)}</div>
-                </div>
-                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteLevel(a.id) }}>✕</button>
-              </div>
+              <tr key={a.id}>
+                <td style={styles.td}>{a.id}</td>
+                <td style={styles.td}>{a.name}</td>
+                <td style={styles.td}>{a.core_layers}</td>
+                <td style={styles.td}>{a.capacity_ml}</td>
+                <td style={styles.td}>+S${Number(a.price_modifier || 0).toFixed(2)}</td>
+                <td style={styles.td}>
+                  <button style={styles.tableActionBtn} onClick={() => startEdit(a)}>Edit</button>
+                  <button style={{ ...styles.tableActionBtn, color: '#c0392b' }} onClick={() => deleteLevel(a.id)}>Delete</button>
+                </td>
+              </tr>
             ))}
-            {levels.length === 0 && <div style={styles.smallNote}>No absorbency levels saved yet — add one above.</div>}
-          </div>
-        )}
+            {levels.length === 0 && (
+              <tr><td style={styles.td} colSpan={6}>{loading ? 'Loading…' : 'No absorbency levels saved yet — add one above.'}</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -1214,7 +1370,13 @@ function ShapesTab({ secret, onAuthError }) {
   return (
     <div>
       <div style={styles.card}>
-        <button style={styles.btnPrimary} onClick={startNew}>+ Add Shape</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={styles.label}>PAD SHAPE MANAGEMENT</div>
+            <div style={styles.smallNote}>The silhouette options shown in the shape preview step.</div>
+          </div>
+          <button style={{ ...styles.btnPrimary, flex: 'none' }} onClick={startNew}>+ Add Shape</button>
+        </div>
       </div>
 
       {form && (
@@ -1235,22 +1397,33 @@ function ShapesTab({ secret, onAuthError }) {
         </div>
       )}
 
-      <div style={styles.card}>
-        <div style={styles.label}>SHAPES ({shapes.length})</div>
-        {loading ? <div style={styles.smallNote}>Loading…</div> : (
-          <div style={styles.entryList}>
+      <div style={styles.tableWrap}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Shape ID</th>
+              <th style={styles.th}>Display Label</th>
+              <th style={styles.th}>Description</th>
+              <th style={styles.th}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
             {shapes.map(s => (
-              <div key={s.id} style={styles.entryRow} onClick={() => startEdit(s)}>
-                <div style={styles.entryInfo}>
-                  <div style={styles.entryName}>{s.name}</div>
-                  <div style={styles.entrySub}>{s.description}</div>
-                </div>
-                <button style={styles.deleteBtn} onClick={e => { e.stopPropagation(); deleteShape(s.id) }}>✕</button>
-              </div>
+              <tr key={s.id}>
+                <td style={styles.td}>{s.id}</td>
+                <td style={styles.td}>{s.name}</td>
+                <td style={{ ...styles.td, whiteSpace: 'normal', minWidth: 220 }}>{s.description}</td>
+                <td style={styles.td}>
+                  <button style={styles.tableActionBtn} onClick={() => startEdit(s)}>Edit</button>
+                  <button style={{ ...styles.tableActionBtn, color: '#c0392b' }} onClick={() => deleteShape(s.id)}>Delete</button>
+                </td>
+              </tr>
             ))}
-            {shapes.length === 0 && <div style={styles.smallNote}>No shapes saved yet — add one above.</div>}
-          </div>
-        )}
+            {shapes.length === 0 && (
+              <tr><td style={styles.td} colSpan={4}>{loading ? 'Loading…' : 'No shapes saved yet — add one above.'}</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -1742,11 +1915,41 @@ const styles = {
   container: { fontFamily: "'Inter', sans-serif", color: c.text, maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: c.bg, padding: '16px' },
   lockCard: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 16, padding: 24, marginTop: 80, display: 'flex', flexDirection: 'column', gap: 10 },
   lockTitle: { fontSize: 18, fontWeight: 700, textAlign: 'center', marginBottom: 6 },
-  topBar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  topTitle: { fontWeight: 700, fontSize: 16 },
-  tabRow: { display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
-  tab: { flex: '1 1 30%', minWidth: 90, padding: '9px 4px', borderRadius: 10, border: `1.5px solid ${c.border}`, background: c.white, color: c.muted, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' },
-  tabActive: { background: c.rose, color: c.white, border: `1.5px solid ${c.rose}` },
+
+  // Sidebar + pill-nav shell — matches ECP's back-office layout (sidebar
+  // picks Shop vs Settings; a pill row picks the page within Shop), using
+  // Wonder Pads' own rose/green colors rather than ECP's pink.
+  shell: { display: 'flex', minHeight: '100vh', background: c.bg, fontFamily: "'Inter', sans-serif", color: c.text },
+  sidebar: { width: 200, flexShrink: 0, background: c.white, borderRight: `1.5px solid ${c.border}`, padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: 4 },
+  sidebarBrand: { display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 16, borderBottom: `1.5px solid ${c.border}`, marginBottom: 16 },
+  sidebarLogo: { width: 32, height: 32, borderRadius: 8, background: c.rose, color: c.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 },
+  sidebarBrandName: { fontSize: 15, fontWeight: 700, color: c.text, fontFamily: "Georgia, 'Times New Roman', serif" },
+  sidebarBrandSub: { fontSize: 9, color: c.muted, letterSpacing: '0.08em' },
+  sidebarNavLabel: { fontSize: 10, color: c.muted, letterSpacing: '0.06em', fontWeight: 700, marginBottom: 6, marginTop: 2 },
+  sidebarNavItem: { display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: c.muted, fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left', width: '100%' },
+  sidebarNavItemActive: { background: c.roseLight, color: c.text },
+
+  main: { flex: 1, minWidth: 0, padding: '24px 28px', overflow: 'auto' },
+  mainTopRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 18 },
+  pageTitle: { fontSize: 26, fontWeight: 500, color: c.text, fontFamily: "Georgia, 'Times New Roman', serif" },
+  pillRow: { display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' },
+  pill: { padding: '7px 14px', borderRadius: 999, border: `1.5px solid ${c.border}`, background: c.white, color: c.text, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
+  pillActive: { background: c.rose, color: c.white, border: `1.5px solid ${c.rose}` },
+
+  // Table primitives — used by Sizes/Absorbency/Shapes to match ECP's
+  // "Pricing & Sizes" table layout instead of the old card list.
+  tableWrap: { overflowX: 'auto', background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 14, marginBottom: 14 },
+  table: { width: '100%', borderCollapse: 'collapse' },
+  th: { textAlign: 'left', padding: '10px 12px', fontSize: 10, fontWeight: 700, color: c.muted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1.5px solid ${c.border}`, whiteSpace: 'nowrap' },
+  td: { padding: '10px 12px', fontSize: 13, color: c.text, borderBottom: `1px solid ${c.border}`, whiteSpace: 'nowrap' },
+  tableActionBtn: { padding: '5px 10px', borderRadius: 7, border: `1.5px solid ${c.border}`, background: c.white, color: c.text, fontSize: 11, fontWeight: 600, cursor: 'pointer', marginRight: 6 },
+
+  // Collapsible category pill header — matches ECP's Fabrics/Ready-Made
+  // Pads pages (rounded pill row per category, with a count badge).
+  categoryPill: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderRadius: 999, background: c.roseLight, color: '#5e4e4a', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginBottom: 8 },
+  categoryCount: { background: c.white, padding: '1px 9px', borderRadius: 999, fontSize: 10, marginLeft: 8, fontWeight: 700 },
+  searchInput: { flex: 1, padding: '10px 14px', borderRadius: 10, border: `1.5px solid ${c.border}`, background: c.white, fontSize: 13, boxSizing: 'border-box' },
+
   card: { background: c.white, border: `1.5px solid ${c.border}`, borderRadius: 14, padding: 14, marginBottom: 14 },
   label: { fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: c.muted, marginBottom: 8 },
   row: { display: 'flex', gap: 8 },
