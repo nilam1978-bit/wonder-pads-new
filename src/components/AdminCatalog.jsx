@@ -94,6 +94,7 @@ export default function AdminCatalog({ onBack }) {
       </div>
 
       {tab === 'fabrics' && <FabricsTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'bulk' && <BulkImportTab secret={secret} onAuthError={setAuthError} />}
       {tab === 'stock' && <StockTab secret={secret} onAuthError={setAuthError} />}
       {tab === 'backing' && <BackingTab secret={secret} onAuthError={setAuthError} />}
       {tab === 'sizes' && <SizesTab secret={secret} onAuthError={setAuthError} />}
@@ -110,6 +111,7 @@ export default function AdminCatalog({ onBack }) {
 
 const TABS = [
   { id: 'fabrics', label: 'Fabrics' },
+  { id: 'bulk', label: 'Bulk Import' },
   { id: 'stock', label: 'Ready-Made Stock' },
   { id: 'backing', label: 'Backing Fabrics' },
   { id: 'sizes', label: 'Sizes' },
@@ -290,6 +292,244 @@ function FabricsTab({ secret, onAuthError }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
+// Bulk Import tab — select many photos from an R2 folder at once,
+// quick-edit each one, and write them all to fabrics_top OR
+// ready_made_stocks in a single request, depending on the mode toggle.
+// Tags attached by the Fabric Photo Tool (stored as R2 customMetadata)
+// are pulled in automatically to pre-fill the fabrics Material field.
+// ─────────────────────────────────────────────
+const RTS_SIZES = ['liner', 'light', 'moderate', 'heavy', 'extra_long']
+
+function guessRtsSize(filename) {
+  const norm = filename.toLowerCase().replace(/[-_]+/g, ' ')
+  if (norm.includes('extra long') || norm.includes('extralong') || /\bxl\b/.test(norm)) return 'extra_long'
+  if (norm.includes('liner')) return 'liner'
+  if (norm.includes('light')) return 'light'
+  if (norm.includes('moderate')) return 'moderate'
+  if (norm.includes('heavy')) return 'heavy'
+  return 'moderate'
+}
+
+function BulkImportTab({ secret, onAuthError }) {
+  const [mode, setMode] = useState('fabrics') // 'fabrics' | 'stock'
+  const browser = useR2Browser(secret)
+  const [existingUrls, setExistingUrls] = useState([])
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set())
+  const [queue, setQueue] = useState([])
+  const [importing, setImporting] = useState(false)
+  const [resultMsg, setResultMsg] = useState('')
+
+  async function loadExisting(forMode) {
+    const path = forMode === 'stock' ? '/api/admin/stock' : '/api/admin/fabrics'
+    const res = await fetch(`${path}?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+    if (!res.ok) { onAuthError(data.error || 'Failed to load'); return }
+    const list = forMode === 'stock' ? data.stocks : data.fabrics
+    setExistingUrls(list.map(f => f.image_url).filter(Boolean))
+  }
+
+  useEffect(() => { loadExisting(mode) }, [mode])
+
+  function switchMode(next) {
+    if (next === mode) return
+    setMode(next)
+    setSelectedKeys(new Set())
+    setQueue([])
+    setResultMsg('')
+  }
+
+  const unpicked = browser.files.filter(f => !existingUrls.includes(f.url) && !queue.some(q => q.key === f.key))
+
+  function toggleSelected(key) {
+    setSelectedKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+
+  function guessFields(file) {
+    const guessedName = file.key.split('/').pop().replace(/\.[^.]+$/, '').replace(/^\d+-/, '').replace(/-/g, ' ')
+    const id = guessedName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+    if (mode === 'stock') {
+      return {
+        key: file.key,
+        image_url: file.url,
+        name: guessedName,
+        id,
+        size_category: guessRtsSize(file.key),
+        price: 0,
+        qty_available: 1,
+        notes: '',
+      }
+    }
+    return {
+      key: file.key,
+      image_url: file.url,
+      name: guessedName,
+      id,
+      category: browser.folder,
+      material: file.tags || '',
+      color_hex: '',
+      premium: 0,
+    }
+  }
+
+  function addSelectedToQueue() {
+    const toAdd = unpicked.filter(f => selectedKeys.has(f.key)).map(guessFields)
+    setQueue(q => [...q, ...toAdd])
+    setSelectedKeys(new Set())
+  }
+
+  function updateQueueItem(key, patch) {
+    setQueue(q => q.map(item => item.key === key ? { ...item, ...patch } : item))
+  }
+
+  function removeFromQueue(key) {
+    setQueue(q => q.filter(item => item.key !== key))
+  }
+
+  async function importAll() {
+    if (queue.length === 0) return
+    const missing = mode === 'stock'
+      ? queue.find(item => !item.id || !item.name || !item.size_category)
+      : queue.find(item => !item.id || !item.name)
+    if (missing) { alert(mode === 'stock' ? 'Every queued item needs a name, ID, and size' : 'Every queued item needs a name and ID'); return }
+    setImporting(true)
+    setResultMsg('')
+    try {
+      const path = mode === 'stock' ? '/api/admin/stock/bulk' : '/api/admin/fabrics/bulk'
+      const payloadKey = mode === 'stock' ? 'stocks' : 'fabrics'
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ secret, [payloadKey]: queue.map(({ key, ...rest }) => rest) }),
+      })
+      const data = await res.json()
+      if (!res.ok) { alert(data.error || 'Import failed'); setImporting(false); return }
+      setResultMsg(`✅ Imported ${data.count} item${data.count === 1 ? '' : 's'}.`)
+      setQueue([])
+      loadExisting(mode)
+    } catch (err) {
+      alert('Import failed: ' + String(err.message || err))
+    }
+    setImporting(false)
+  }
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <div style={styles.label}>IMPORTING INTO</div>
+        <div style={styles.row}>
+          <button style={{ ...styles.tab, flex: 1, ...(mode === 'fabrics' ? styles.tabActive : {}) }} onClick={() => switchMode('fabrics')}>Fabrics</button>
+          <button style={{ ...styles.tab, flex: 1, ...(mode === 'stock' ? styles.tabActive : {}) }} onClick={() => switchMode('stock')}>Ready-Made Stock</button>
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        <div style={styles.label}>1. BROWSE AN R2 FOLDER</div>
+        <div style={styles.row}>
+          <select style={styles.select} value={browser.folder} onChange={e => browser.setFolder(e.target.value)}>
+            {FOLDERS.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+          <button style={styles.btnSecondary} onClick={browser.browse}>
+            {browser.loading ? 'Loading…' : 'Browse'}
+          </button>
+        </div>
+        <input
+          style={{ ...styles.input, marginTop: 8 }}
+          placeholder="...or type the exact folder name if it's not in the list above"
+          value={browser.customFolder}
+          onChange={e => browser.setCustomFolder(e.target.value)}
+        />
+        {browser.error && <div style={styles.errorText}>{browser.error}</div>}
+        {browser.files.length > 0 && (
+          <div style={styles.smallNote}>
+            {unpicked.length} of {browser.files.length} photo{browser.files.length === 1 ? '' : 's'} not yet in the catalog or queue — click to select, then add them below.
+          </div>
+        )}
+        <div style={styles.thumbGrid}>
+          {unpicked.map(f => (
+            <div
+              key={f.key}
+              style={{ ...styles.thumbCard, outline: selectedKeys.has(f.key) ? `3px solid ${c.rose}` : 'none' }}
+              onClick={() => toggleSelected(f.key)}
+            >
+              <img src={f.url} alt="" style={styles.thumbImg} />
+              <div style={styles.thumbKey}>{f.key.split('/').pop()}</div>
+            </div>
+          ))}
+        </div>
+        {unpicked.length > 0 && (
+          <button style={styles.btnPrimary} onClick={addSelectedToQueue} disabled={selectedKeys.size === 0}>
+            + Add {selectedKeys.size || ''} Selected to Import Queue
+          </button>
+        )}
+      </div>
+
+      {queue.length > 0 && (
+        <div style={styles.card}>
+          <div style={styles.label}>2. REVIEW & EDIT ({queue.length} QUEUED)</div>
+          {queue.map(item => (
+            <div key={item.key} style={{ borderBottom: `1px solid ${c.border}`, paddingBottom: 10, marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <img src={item.image_url} alt="" style={{ ...styles.entryThumb, flex: 'none' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={styles.row}>
+                    <input style={styles.input} placeholder="Display name" value={item.name}
+                      onChange={e => updateQueueItem(item.key, { name: e.target.value })} />
+                    <input style={styles.input} placeholder="Catalog ID" value={item.id}
+                      onChange={e => updateQueueItem(item.key, { id: e.target.value })} />
+                  </div>
+                  {mode === 'stock' ? (
+                    <>
+                      <div style={styles.row}>
+                        <select style={styles.select} value={item.size_category}
+                          onChange={e => updateQueueItem(item.key, { size_category: e.target.value })}>
+                          {RTS_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+                        </select>
+                        <input style={styles.input} type="number" step="0.5" placeholder="Price ($)" value={item.price}
+                          onChange={e => updateQueueItem(item.key, { price: Number(e.target.value) })} />
+                      </div>
+                      <div style={styles.row}>
+                        <input style={styles.input} type="number" placeholder="Qty available" value={item.qty_available}
+                          onChange={e => updateQueueItem(item.key, { qty_available: Number(e.target.value) })} />
+                        <input style={styles.input} placeholder="Notes (optional)" value={item.notes}
+                          onChange={e => updateQueueItem(item.key, { notes: e.target.value })} />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={styles.row}>
+                        <input style={styles.input} placeholder="Category" value={item.category}
+                          onChange={e => updateQueueItem(item.key, { category: e.target.value })} />
+                        <input style={styles.input} placeholder="Material" value={item.material}
+                          onChange={e => updateQueueItem(item.key, { material: e.target.value })} />
+                      </div>
+                      <div style={styles.row}>
+                        <input style={styles.input} placeholder="Swatch color (hex, optional)" value={item.color_hex}
+                          onChange={e => updateQueueItem(item.key, { color_hex: e.target.value })} />
+                        <input style={styles.input} type="number" step="0.5" placeholder="Premium ($)" value={item.premium}
+                          onChange={e => updateQueueItem(item.key, { premium: Number(e.target.value) })} />
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button style={styles.deleteBtn} onClick={() => removeFromQueue(item.key)}>✕</button>
+              </div>
+            </div>
+          ))}
+          <button style={styles.btnPrimary} onClick={importAll} disabled={importing}>
+            {importing ? 'Importing…' : `Import ${queue.length} Item${queue.length === 1 ? '' : 's'}`}
+          </button>
+          {resultMsg && <div style={styles.smallNote}>{resultMsg}</div>}
+        </div>
+      )}
     </div>
   )
 }
