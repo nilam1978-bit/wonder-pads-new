@@ -3,11 +3,16 @@ import { useState, useEffect } from 'react'
 // Wonder Pads — Admin Catalog
 //
 // Lets you pull photos you've already uploaded to R2 (via the Fabric Photo
-// Tool) into real catalog entries — replacing the old batch-imported
-// placeholder junk in config.json. Two tabs: Fabrics and Ready-Made Stock.
+// Tool) into real catalog entries, plus manage blog/FAQ/reviews/feedback/
+// settings — all backed by D1.
 //
-// Auth is the same simple secret-word pattern as /admin/migrate and the
-// Fabric Photo Tool — type it once per visit, nothing is stored.
+// Auth: a real username/password login (POST /api/admin/login) backed by
+// the admin_users table, returning a signed session token that's stored
+// in localStorage so you stay logged in across visits. The old shared
+// "master secret" (APP_SECRET in worker.js — same one that guards
+// /admin/migrate and the Fabric Photo Tool's upload) still works too,
+// and doubles as the credential for the "first time here / reset
+// password" flow that creates or resets the one admin account.
 
 const c = {
   rose: '#8b3a52',
@@ -37,37 +42,175 @@ const SIZE_CATEGORIES = [
   { id: 'extra_long', name: 'Extra Long' },
 ]
 
+const SESSION_STORAGE_KEY = 'wpnAdminSession'
+
 export default function AdminCatalog({ onBack }) {
-  const [secret, setSecret] = useState('')
+  const [session, setSession] = useState(null) // { token, username, expiresAt }
   const [unlocked, setUnlocked] = useState(false)
-  const [secretInput, setSecretInput] = useState('')
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
   const [authError, setAuthError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const [showSetup, setShowSetup] = useState(false)
+  const [setupMasterSecret, setSetupMasterSecret] = useState('')
+  const [setupUsername, setSetupUsername] = useState('')
+  const [setupPassword, setSetupPassword] = useState('')
 
   const [tab, setTab] = useState('fabrics') // see TABS array below for all valid ids
 
-  function tryUnlock() {
-    if (!secretInput) return
-    setSecret(secretInput)
+  // Restore a still-valid session on page load, so logging in once sticks
+  // around instead of asking again every visit.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SESSION_STORAGE_KEY)
+      if (!raw) return
+      const saved = JSON.parse(raw)
+      if (saved && saved.token && saved.expiresAt > Date.now()) {
+        setSession(saved)
+        setUnlocked(true)
+      } else {
+        localStorage.removeItem(SESSION_STORAGE_KEY)
+      }
+    } catch {}
+  }, [])
+
+  function storeSession(sess) {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sess))
+    setSession(sess)
     setUnlocked(true)
     setAuthError('')
   }
+
+  function logOut() {
+    localStorage.removeItem(SESSION_STORAGE_KEY)
+    setSession(null)
+    setUnlocked(false)
+    setLoginPassword('')
+  }
+
+  // Passed down to every tab as onAuthError — if a request comes back
+  // unauthorized (session expired, or revoked), boot back to the login
+  // screen instead of leaving the tab silently broken.
+  function handleChildAuthError(msg) {
+    localStorage.removeItem(SESSION_STORAGE_KEY)
+    setSession(null)
+    setUnlocked(false)
+    setAuthError(msg || 'Your session expired — please log in again.')
+  }
+
+  async function doLogin() {
+    if (!loginUsername || !loginPassword) return
+    setBusy(true)
+    setAuthError('')
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: loginUsername, password: loginPassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setAuthError(data.error || 'Login failed'); setBusy(false); return }
+      storeSession({ token: data.token, username: loginUsername, expiresAt: data.expiresAt })
+      setLoginPassword('')
+    } catch (err) {
+      setAuthError('Could not reach the server: ' + String(err.message || err))
+    }
+    setBusy(false)
+  }
+
+  async function doSetup() {
+    if (!setupMasterSecret || !setupUsername || !setupPassword) return
+    setBusy(true)
+    setAuthError('')
+    try {
+      const setupRes = await fetch('/api/admin/setup-account', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ masterSecret: setupMasterSecret, username: setupUsername, password: setupPassword }),
+      })
+      const setupData = await setupRes.json()
+      if (!setupRes.ok) { setAuthError(setupData.error || 'Setup failed'); setBusy(false); return }
+
+      const loginRes = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: setupUsername, password: setupPassword }),
+      })
+      const loginData = await loginRes.json()
+      if (!loginRes.ok) { setAuthError('Account saved — log in with your new password.'); setShowSetup(false); setBusy(false); return }
+      storeSession({ token: loginData.token, username: setupUsername, expiresAt: loginData.expiresAt })
+      setShowSetup(false)
+      setSetupMasterSecret('')
+      setSetupPassword('')
+    } catch (err) {
+      setAuthError('Could not reach the server: ' + String(err.message || err))
+    }
+    setBusy(false)
+  }
+
+  const secret = session?.token || '' // kept as "secret" so every tab component below is unchanged
 
   if (!unlocked) {
     return (
       <div style={styles.container}>
         <div style={styles.lockCard}>
           <div style={styles.lockTitle}>🔒 Admin Catalog</div>
-          <input
-            type="password"
-            style={styles.input}
-            placeholder="Secret word"
-            value={secretInput}
-            onChange={e => setSecretInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && tryUnlock()}
-          />
-          <button style={styles.btnPrimary} onClick={tryUnlock}>Unlock</button>
-          {authError && <div style={styles.errorText}>{authError}</div>}
-          <button style={styles.linkBtn} onClick={onBack}>← Back to site</button>
+          {!showSetup ? (
+            <>
+              <input
+                style={styles.input}
+                placeholder="Username"
+                value={loginUsername}
+                onChange={e => setLoginUsername(e.target.value)}
+              />
+              <input
+                type="password"
+                style={styles.input}
+                placeholder="Password"
+                value={loginPassword}
+                onChange={e => setLoginPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && doLogin()}
+              />
+              <button style={styles.btnPrimary} onClick={doLogin} disabled={busy}>
+                {busy ? 'Logging in…' : 'Log In'}
+              </button>
+              {authError && <div style={styles.errorText}>{authError}</div>}
+              <button style={styles.linkBtn} onClick={() => { setShowSetup(true); setAuthError('') }}>
+                First time here / reset password
+              </button>
+              <button style={styles.linkBtn} onClick={onBack}>← Back to site</button>
+            </>
+          ) : (
+            <>
+              <div style={styles.smallNote}>Set (or reset) the one admin account using your master secret word — the same one that guards the R2 upload tool.</div>
+              <input
+                type="password"
+                style={styles.input}
+                placeholder="Master secret word"
+                value={setupMasterSecret}
+                onChange={e => setSetupMasterSecret(e.target.value)}
+              />
+              <input
+                style={styles.input}
+                placeholder="Choose a username"
+                value={setupUsername}
+                onChange={e => setSetupUsername(e.target.value)}
+              />
+              <input
+                type="password"
+                style={styles.input}
+                placeholder="Choose a password"
+                value={setupPassword}
+                onChange={e => setSetupPassword(e.target.value)}
+              />
+              <button style={styles.btnPrimary} onClick={doSetup} disabled={busy}>
+                {busy ? 'Saving…' : 'Save & Log In'}
+              </button>
+              {authError && <div style={styles.errorText}>{authError}</div>}
+              <button style={styles.linkBtn} onClick={() => { setShowSetup(false); setAuthError('') }}>← Back to login</button>
+            </>
+          )}
         </div>
       </div>
     )
@@ -78,7 +221,7 @@ export default function AdminCatalog({ onBack }) {
       <div style={styles.topBar}>
         <button style={styles.linkBtn} onClick={onBack}>← Back to site</button>
         <div style={styles.topTitle}>Admin Catalog</div>
-        <div style={{ width: 80 }} />
+        <button style={styles.linkBtn} onClick={logOut}>Log out</button>
       </div>
 
       <div style={styles.tabRow}>
@@ -93,18 +236,18 @@ export default function AdminCatalog({ onBack }) {
         ))}
       </div>
 
-      {tab === 'fabrics' && <FabricsTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'bulk' && <BulkImportTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'stock' && <StockTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'backing' && <BackingTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'sizes' && <SizesTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'absorbency' && <AbsorbencyTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'shapes' && <ShapesTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'blog' && <BlogTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'faq' && <FaqTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'reviews' && <ReviewsTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'feedback' && <FeedbackTab secret={secret} onAuthError={setAuthError} />}
-      {tab === 'settings' && <SettingsTab secret={secret} onAuthError={setAuthError} />}
+      {tab === 'fabrics' && <FabricsTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'bulk' && <BulkImportTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'stock' && <StockTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'backing' && <BackingTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'sizes' && <SizesTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'absorbency' && <AbsorbencyTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'shapes' && <ShapesTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'blog' && <BlogTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'faq' && <FaqTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'reviews' && <ReviewsTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'feedback' && <FeedbackTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'settings' && <SettingsTab secret={secret} onAuthError={handleChildAuthError} />}
     </div>
   )
 }
