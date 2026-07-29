@@ -55,9 +55,19 @@ export default {
       return handleAdminFabrics(request, url, env);
     }
 
+    // 6b. Admin catalog — bulk-insert many fabrics at once (bulk import)
+    if (url.pathname === '/api/admin/fabrics/bulk' && request.method === 'POST') {
+      return handleAdminFabricsBulk(request, env);
+    }
+
     // 7. Admin catalog — CRUD for the ready-made-stock table (D1)
     if (url.pathname === '/api/admin/stock') {
       return handleAdminStock(request, url, env);
+    }
+
+    // 7a. Admin catalog — bulk-insert many ready-made-stock items at once
+    if (url.pathname === '/api/admin/stock/bulk' && request.method === 'POST') {
+      return handleAdminStockBulk(request, env);
     }
 
     // 7b. Admin catalog — CRUD for the backing-fabrics table (D1)
@@ -450,12 +460,13 @@ async function handleR2List(url, env) {
     return jsonResponse({ error: 'folder is required' }, 400);
   }
 
-  const listed = await env.IMAGES.list({ prefix: `${folder}/`, limit: 500 });
+  const listed = await env.IMAGES.list({ prefix: `${folder}/`, limit: 500, include: ['customMetadata'] });
   const files = listed.objects.map((obj) => ({
     key: obj.key,
     url: `/images/${obj.key}`,
     size: obj.size,
     uploaded: obj.uploaded,
+    tags: (obj.customMetadata && obj.customMetadata.tags) || '',
   }));
 
   return jsonResponse({ folder, files });
@@ -536,6 +547,69 @@ async function handleAdminFabrics(request, url, env) {
 }
 
 // ─────────────────────────────────────────────
+// 6b. Admin catalog — bulk fabric import. Takes an array of fabrics
+//    (same shape as a single POST /api/admin/fabrics body) and writes
+//    them all in one D1 batch, so importing 20+ photos at once from
+//    the Bulk Import tab doesn't mean 20+ round trips. All-or-nothing:
+//    if one row is malformed the whole batch is rejected before any
+//    writes happen, so a partial import can't silently leave the
+//    catalog half-updated.
+// ─────────────────────────────────────────────
+async function handleAdminFabricsBulk(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Bad request body' }, 400);
+  }
+  if (body.secret !== APP_SECRET) {
+    return jsonResponse({ error: 'Wrong secret' }, 403);
+  }
+  const list = Array.isArray(body.fabrics) ? body.fabrics : [];
+  if (list.length === 0) {
+    return jsonResponse({ error: 'fabrics must be a non-empty array' }, 400);
+  }
+  for (const f of list) {
+    if (!f.id || !f.name) {
+      return jsonResponse({ error: `Every fabric needs an id and name — "${f.name || f.id || '(untitled)'}" is missing one` }, 400);
+    }
+  }
+
+  const stmt = env.DB.prepare(
+    `INSERT INTO fabrics_top (id, name, category, material, description, color_hex, image_url, premium, hidden, stock_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       category = excluded.category,
+       material = excluded.material,
+       description = excluded.description,
+       color_hex = excluded.color_hex,
+       image_url = excluded.image_url,
+       premium = excluded.premium,
+       hidden = excluded.hidden,
+       stock_status = excluded.stock_status`
+  );
+
+  const batch = list.map((f) =>
+    stmt.bind(
+      f.id,
+      f.name,
+      f.category || 'General',
+      f.material || '',
+      f.description || '',
+      f.color_hex || '',
+      f.image_url || '',
+      f.premium || 0,
+      f.hidden || 0,
+      f.stock_status || 'in_stock'
+    )
+  );
+
+  await env.DB.batch(batch);
+  return jsonResponse({ success: true, count: list.length });
+}
+
+// ─────────────────────────────────────────────
 // 7. Admin catalog — ready_made_stocks table (D1)
 //    Same GET / POST / DELETE shape as fabrics, above.
 // ─────────────────────────────────────────────
@@ -602,7 +676,58 @@ async function handleAdminStock(request, url, env) {
 }
 
 // ─────────────────────────────────────────────
-// 7b. Admin catalog — fabrics_backing table (D1)
+// 7a. Admin catalog — bulk RTS import. Same shape and same all-or-
+//    nothing batch behavior as the fabrics bulk import above.
+// ─────────────────────────────────────────────
+async function handleAdminStockBulk(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Bad request body' }, 400);
+  }
+  if (body.secret !== APP_SECRET) {
+    return jsonResponse({ error: 'Wrong secret' }, 403);
+  }
+  const list = Array.isArray(body.stocks) ? body.stocks : [];
+  if (list.length === 0) {
+    return jsonResponse({ error: 'stocks must be a non-empty array' }, 400);
+  }
+  for (const s of list) {
+    if (!s.id || !s.name || !s.size_category) {
+      return jsonResponse({ error: `Every item needs an id, name, and size category — "${s.name || s.id || '(untitled)'}" is missing one` }, 400);
+    }
+  }
+
+  const stmt = env.DB.prepare(
+    `INSERT INTO ready_made_stocks (id, name, size_category, price, qty_available, image_url, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       size_category = excluded.size_category,
+       price = excluded.price,
+       qty_available = excluded.qty_available,
+       image_url = excluded.image_url,
+       notes = excluded.notes`
+  );
+
+  const batch = list.map((s) =>
+    stmt.bind(
+      s.id,
+      s.name,
+      s.size_category,
+      s.price || 0,
+      s.qty_available ?? 1,
+      s.image_url || '',
+      s.notes || ''
+    )
+  );
+
+  await env.DB.batch(batch);
+  return jsonResponse({ success: true, count: list.length });
+}
+
+
 //    Same GET / POST / DELETE shape as fabrics, above. No photos —
 //    backing fabrics are shown by color swatch (color_hex), not an image.
 //    "properties" is stored as a JSON array (e.g. ["Soft & breathable"]).
