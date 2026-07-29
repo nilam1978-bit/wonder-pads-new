@@ -237,7 +237,6 @@ export default function AdminCatalog({ onBack }) {
       </div>
 
       {tab === 'fabrics' && <FabricsTab secret={secret} onAuthError={handleChildAuthError} />}
-      {tab === 'bulk' && <BulkImportTab secret={secret} onAuthError={handleChildAuthError} />}
       {tab === 'stock' && <StockTab secret={secret} onAuthError={handleChildAuthError} />}
       {tab === 'backing' && <BackingTab secret={secret} onAuthError={handleChildAuthError} />}
       {tab === 'sizes' && <SizesTab secret={secret} onAuthError={handleChildAuthError} />}
@@ -254,7 +253,6 @@ export default function AdminCatalog({ onBack }) {
 
 const TABS = [
   { id: 'fabrics', label: 'Fabrics' },
-  { id: 'bulk', label: 'Bulk Import' },
   { id: 'stock', label: 'Ready-Made Stock' },
   { id: 'backing', label: 'Backing Fabrics' },
   { id: 'sizes', label: 'Sizes' },
@@ -340,6 +338,7 @@ function FabricsTab({ secret, onAuthError }) {
   const [fabrics, setFabrics] = useState([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState(null) // { id, name, category, material, description, color_hex, image_url, premium }
+  const [showBulk, setShowBulk] = useState(false)
   const browser = useR2Browser(secret)
 
   async function loadFabrics() {
@@ -390,6 +389,21 @@ function FabricsTab({ secret, onAuthError }) {
 
   return (
     <div>
+      <div style={styles.card}>
+        <button style={styles.btnSecondary} onClick={() => setShowBulk(v => !v)}>
+          {showBulk ? 'Hide Bulk Fabric Import' : '📦 Bulk Fabric Import'}
+        </button>
+      </div>
+
+      {showBulk && (
+        <BulkImportPanel
+          secret={secret}
+          onAuthError={onAuthError}
+          mode="fabrics"
+          onDone={() => { setShowBulk(false); loadFabrics() }}
+        />
+      )}
+
       <FolderBrowser browser={browser} existingImageUrls={existingUrls} onPick={startNewFromFile} />
 
       {form && (
@@ -440,11 +454,14 @@ function FabricsTab({ secret, onAuthError }) {
 }
 
 // ─────────────────────────────────────────────
-// Bulk Import tab — select many photos from an R2 folder at once,
-// quick-edit each one, and write them all to fabrics_top OR
-// ready_made_stocks in a single request, depending on the mode toggle.
-// Tags attached by the Fabric Photo Tool (stored as R2 customMetadata)
-// are pulled in automatically to pre-fill the fabrics Material field.
+// Bulk import — select many photos from an R2 folder at once, quick-edit
+// each one, and write them all to fabrics_top OR ready_made_stocks in a
+// single request. Rendered as a toggleable panel from the Fabrics tab
+// (mode="fabrics") and the Ready-Made Stock tab (mode="stock") — matches
+// ECP's pattern of a bulk-import button living on each page, rather than
+// a separate nav tab. Tags attached by the Fabric Photo Tool (stored as
+// R2 customMetadata) are pulled in automatically to pre-fill the fabrics
+// Material field.
 // ─────────────────────────────────────────────
 const RTS_SIZES = ['liner', 'light', 'moderate', 'heavy', 'extra_long']
 
@@ -458,8 +475,7 @@ function guessRtsSize(filename) {
   return 'moderate'
 }
 
-function BulkImportTab({ secret, onAuthError }) {
-  const [mode, setMode] = useState('fabrics') // 'fabrics' | 'stock'
+function BulkImportPanel({ secret, onAuthError, mode, onDone }) {
   const browser = useR2Browser(secret)
   const [existingUrls, setExistingUrls] = useState([])
   const [selectedKeys, setSelectedKeys] = useState(() => new Set())
@@ -467,24 +483,16 @@ function BulkImportTab({ secret, onAuthError }) {
   const [importing, setImporting] = useState(false)
   const [resultMsg, setResultMsg] = useState('')
 
-  async function loadExisting(forMode) {
-    const path = forMode === 'stock' ? '/api/admin/stock' : '/api/admin/fabrics'
+  async function loadExisting() {
+    const path = mode === 'stock' ? '/api/admin/stock' : '/api/admin/fabrics'
     const res = await fetch(`${path}?secret=${encodeURIComponent(secret)}`)
     const data = await res.json()
     if (!res.ok) { onAuthError(data.error || 'Failed to load'); return }
-    const list = forMode === 'stock' ? data.stocks : data.fabrics
+    const list = mode === 'stock' ? data.stocks : data.fabrics
     setExistingUrls(list.map(f => f.image_url).filter(Boolean))
   }
 
-  useEffect(() => { loadExisting(mode) }, [mode])
-
-  function switchMode(next) {
-    if (next === mode) return
-    setMode(next)
-    setSelectedKeys(new Set())
-    setQueue([])
-    setResultMsg('')
-  }
+  useEffect(() => { loadExisting() }, [])
 
   const unpicked = browser.files.filter(f => !existingUrls.includes(f.url) && !queue.some(q => q.key === f.key))
 
@@ -557,7 +565,8 @@ function BulkImportTab({ secret, onAuthError }) {
       if (!res.ok) { alert(data.error || 'Import failed'); setImporting(false); return }
       setResultMsg(`✅ Imported ${data.count} item${data.count === 1 ? '' : 's'}.`)
       setQueue([])
-      loadExisting(mode)
+      loadExisting()
+      if (onDone) onDone()
     } catch (err) {
       alert('Import failed: ' + String(err.message || err))
     }
@@ -566,14 +575,6 @@ function BulkImportTab({ secret, onAuthError }) {
 
   return (
     <div>
-      <div style={styles.card}>
-        <div style={styles.label}>IMPORTING INTO</div>
-        <div style={styles.row}>
-          <button style={{ ...styles.tab, flex: 1, ...(mode === 'fabrics' ? styles.tabActive : {}) }} onClick={() => switchMode('fabrics')}>Fabrics</button>
-          <button style={{ ...styles.tab, flex: 1, ...(mode === 'stock' ? styles.tabActive : {}) }} onClick={() => switchMode('stock')}>Ready-Made Stock</button>
-        </div>
-      </div>
-
       <div style={styles.card}>
         <div style={styles.label}>1. BROWSE AN R2 FOLDER</div>
         <div style={styles.row}>
@@ -684,6 +685,7 @@ function StockTab({ secret, onAuthError }) {
   const [stocks, setStocks] = useState([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState(null)
+  const [showBulk, setShowBulk] = useState(false)
   const browser = useR2Browser(secret)
 
   async function loadStocks() {
@@ -733,6 +735,21 @@ function StockTab({ secret, onAuthError }) {
 
   return (
     <div>
+      <div style={styles.card}>
+        <button style={styles.btnSecondary} onClick={() => setShowBulk(v => !v)}>
+          {showBulk ? 'Hide Bulk Lookbook Import' : '🚀 Bulk Lookbook Import'}
+        </button>
+      </div>
+
+      {showBulk && (
+        <BulkImportPanel
+          secret={secret}
+          onAuthError={onAuthError}
+          mode="stock"
+          onDone={() => { setShowBulk(false); loadStocks() }}
+        />
+      )}
+
       <FolderBrowser browser={browser} existingImageUrls={existingUrls} onPick={startNewFromFile} />
 
       {form && (
