@@ -44,6 +44,21 @@ const SIZE_CATEGORIES = [
 
 const SESSION_STORAGE_KEY = 'wpnAdminSession'
 
+// Tracks whether the viewport is narrow enough that the desktop sidebar
+// layout should switch to ECP's stacked mobile pattern (Back Office row
+// → Shop/Settings pills → page title → subnav pills → content → sign out
+// link) instead of a squeezed sidebar. Resize-aware so rotating a tablet
+// or resizing a browser window updates it live.
+function useIsNarrow(breakpoint = 860) {
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < breakpoint)
+  useEffect(() => {
+    function onResize() { setNarrow(window.innerWidth < breakpoint) }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [breakpoint])
+  return narrow
+}
+
 export default function AdminCatalog({ onBack }) {
   const [session, setSession] = useState(null) // { token, username, expiresAt }
   const [unlocked, setUnlocked] = useState(false)
@@ -59,6 +74,7 @@ export default function AdminCatalog({ onBack }) {
 
   const [tab, setTab] = useState('fabrics') // see SHOP_TABS array below for all valid ids
   const [section, setSection] = useState('shop') // 'shop' | 'settings' — sidebar selection
+  const isNarrow = useIsNarrow()
 
   // Restore a still-valid session on page load, so logging in once sticks
   // around instead of asking again every visit.
@@ -217,77 +233,113 @@ export default function AdminCatalog({ onBack }) {
     )
   }
 
+  const pageTitle = section === 'settings' ? 'Settings' : (SHOP_TABS.find(t => t.id === tab) || SHOP_TABS[0]).label
+
+  const pageContent = section === 'settings' ? (
+    <SettingsTab secret={secret} onAuthError={handleChildAuthError} />
+  ) : (
+    <>
+      {tab === 'fabrics' && <FabricsTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'stock' && <StockTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'backing' && <BackingTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'sizes' && <SizesTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'absorbency' && <AbsorbencyTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'shapes' && <ShapesTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'blog' && <BlogTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'faq' && <FaqTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'reviews' && <ReviewsTab secret={secret} onAuthError={handleChildAuthError} />}
+      {tab === 'feedback' && <FeedbackTab secret={secret} onAuthError={handleChildAuthError} />}
+    </>
+  )
+
+  const subNav = section === 'shop' && (
+    <div style={styles.pillRow}>
+      {SHOP_TABS.map(t => (
+        <button
+          key={t.id}
+          style={{ ...styles.pill, ...(tab === t.id ? styles.pillActive : {}) }}
+          onClick={() => setTab(t.id)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+
+  // Mobile: ECP's stacked pattern — Back Office row, then Shop/Settings as
+  // a full-width pill row, then page title + subnav pills, then content,
+  // then plain text links at the very bottom. No sidebar at all.
+  if (isNarrow) {
+    return (
+      <div style={styles.mobileShell}>
+        <div style={styles.mobileTopRow}>
+          <div style={styles.sidebarLogo}>WP</div>
+          <div style={styles.mobileBackOffice}>BACK OFFICE</div>
+        </div>
+        <div style={styles.mobileSectionPills}>
+          <button
+            style={{ ...styles.mobileSectionPill, ...(section === 'shop' ? styles.mobileSectionPillActive : {}) }}
+            onClick={() => setSection('shop')}
+          >
+            🛍️ Shop
+          </button>
+          <button
+            style={{ ...styles.mobileSectionPill, ...(section === 'settings' ? styles.mobileSectionPillActive : {}) }}
+            onClick={() => setSection('settings')}
+          >
+            ⚙️ Settings
+          </button>
+        </div>
+
+        <div style={styles.mobileContent}>
+          <div style={styles.pageTitle}>{pageTitle}</div>
+          {subNav}
+          {pageContent}
+        </div>
+
+        <div style={styles.mobileFooterLinks}>
+          <button style={styles.linkBtn} onClick={onBack}>← Back to site</button>
+          <button style={styles.linkBtn} onClick={logOut}>Sign out{session?.username ? ` (${session.username})` : ''}</button>
+        </div>
+      </div>
+    )
+  }
+
+  // Desktop: sidebar + main content
   return (
-    <div style={styles.shell} className="wpn-admin-shell">
-      <style>{`
-        @media (max-width: 760px) {
-          .wpn-admin-shell { flex-direction: column !important; }
-          .wpn-admin-sidebar { width: 100% !important; flex-direction: row !important; align-items: center !important; overflow-x: auto; border-right: none !important; border-bottom: 1.5px solid ${c.border}; padding: 10px 14px !important; gap: 10px !important; }
-          .wpn-admin-sidebar-stack { display: none !important; }
-        }
-      `}</style>
-      <div style={styles.sidebar} className="wpn-admin-sidebar">
+    <div style={styles.shell}>
+      <div style={styles.sidebar}>
         <div style={styles.sidebarBrand}>
           <div style={styles.sidebarLogo}>WP</div>
-          <div className="wpn-admin-sidebar-stack">
+          <div>
             <div style={styles.sidebarBrandName}>Wonder Pads</div>
             <div style={styles.sidebarBrandSub}>BACK OFFICE</div>
           </div>
         </div>
-        <div style={styles.sidebarNavLabel} className="wpn-admin-sidebar-stack">NAVIGATION</div>
+        <div style={styles.sidebarNavLabel}>NAVIGATION</div>
         <button
-          style={{ ...styles.sidebarNavItem, ...(section === 'shop' ? styles.sidebarNavItemActive : {}), width: 'auto' }}
+          style={{ ...styles.sidebarNavItem, ...(section === 'shop' ? styles.sidebarNavItemActive : {}) }}
           onClick={() => setSection('shop')}
         >
           🛍️ Shop
         </button>
         <button
-          style={{ ...styles.sidebarNavItem, ...(section === 'settings' ? styles.sidebarNavItemActive : {}), width: 'auto' }}
+          style={{ ...styles.sidebarNavItem, ...(section === 'settings' ? styles.sidebarNavItemActive : {}) }}
           onClick={() => setSection('settings')}
         >
           ⚙️ Settings
         </button>
-        <div style={{ flex: 1 }} className="wpn-admin-sidebar-stack" />
+        <div style={{ flex: 1 }} />
         <button style={styles.linkBtn} onClick={onBack}>← Back to site</button>
         <button style={styles.linkBtn} onClick={logOut}>Log out{session?.username ? ` (${session.username})` : ''}</button>
       </div>
 
       <div style={styles.main}>
         <div style={styles.mainTopRow}>
-          <div style={styles.pageTitle}>
-            {section === 'settings' ? 'Settings' : (SHOP_TABS.find(t => t.id === tab) || SHOP_TABS[0]).label}
-          </div>
-          {section === 'shop' && (
-            <div style={styles.pillRow}>
-              {SHOP_TABS.map(t => (
-                <button
-                  key={t.id}
-                  style={{ ...styles.pill, ...(tab === t.id ? styles.pillActive : {}) }}
-                  onClick={() => setTab(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          )}
+          <div style={styles.pageTitle}>{pageTitle}</div>
+          {subNav}
         </div>
-
-        {section === 'settings' ? (
-          <SettingsTab secret={secret} onAuthError={handleChildAuthError} />
-        ) : (
-          <>
-            {tab === 'fabrics' && <FabricsTab secret={secret} onAuthError={handleChildAuthError} />}
-            {tab === 'stock' && <StockTab secret={secret} onAuthError={handleChildAuthError} />}
-            {tab === 'backing' && <BackingTab secret={secret} onAuthError={handleChildAuthError} />}
-            {tab === 'sizes' && <SizesTab secret={secret} onAuthError={handleChildAuthError} />}
-            {tab === 'absorbency' && <AbsorbencyTab secret={secret} onAuthError={handleChildAuthError} />}
-            {tab === 'shapes' && <ShapesTab secret={secret} onAuthError={handleChildAuthError} />}
-            {tab === 'blog' && <BlogTab secret={secret} onAuthError={handleChildAuthError} />}
-            {tab === 'faq' && <FaqTab secret={secret} onAuthError={handleChildAuthError} />}
-            {tab === 'reviews' && <ReviewsTab secret={secret} onAuthError={handleChildAuthError} />}
-            {tab === 'feedback' && <FeedbackTab secret={secret} onAuthError={handleChildAuthError} />}
-          </>
-        )}
+        {pageContent}
       </div>
     </div>
   )
@@ -325,11 +377,14 @@ function useR2Browser(secret) {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to browse folder')
       setFiles(data.files)
+      setLoading(false)
+      return data.files
     } catch (err) {
       setError(String(err.message || err))
       setFiles([])
+      setLoading(false)
+      return []
     }
-    setLoading(false)
   }
 
   return { folder, setFolder, customFolder, setCustomFolder, files, loading, error, browse }
@@ -536,29 +591,30 @@ function FabricsTab({ secret, onAuthError }) {
 // single request. Rendered as a toggleable panel from the Fabrics tab
 // (mode="fabrics") and the Ready-Made Stock tab (mode="stock") — matches
 // ECP's pattern of a bulk-import button living on each page, rather than
-// a separate nav tab. Tags attached by the Fabric Photo Tool (stored as
-// R2 customMetadata) are pulled in automatically to pre-fill the fabrics
-// Material field.
+// a separate nav tab. Also matches ECP's preview-before-import flow:
+// keyword search → preview grid (everything pre-selected, click to
+// deselect) → shared category/material (or size/price) applied to the
+// whole batch → one confirm step. No per-photo editing — that's what
+// the regular Fabrics/Stock "add one" flow is for.
 // ─────────────────────────────────────────────
-const RTS_SIZES = ['liner', 'light', 'moderate', 'heavy', 'extra_long']
-
-function guessRtsSize(filename) {
-  const norm = filename.toLowerCase().replace(/[-_]+/g, ' ')
-  if (norm.includes('extra long') || norm.includes('extralong') || /\bxl\b/.test(norm)) return 'extra_long'
-  if (norm.includes('liner')) return 'liner'
-  if (norm.includes('light')) return 'light'
-  if (norm.includes('moderate')) return 'moderate'
-  if (norm.includes('heavy')) return 'heavy'
-  return 'moderate'
-}
 
 function BulkImportPanel({ secret, onAuthError, mode, onDone }) {
   const browser = useR2Browser(secret)
   const [existingUrls, setExistingUrls] = useState([])
+  const [keyword, setKeyword] = useState('')
+  const [previewed, setPreviewed] = useState(false)
   const [selectedKeys, setSelectedKeys] = useState(() => new Set())
-  const [queue, setQueue] = useState([])
   const [importing, setImporting] = useState(false)
   const [resultMsg, setResultMsg] = useState('')
+
+  // Shared fields applied to the WHOLE batch at once — matches ECP's
+  // bulk import, which sets one category/material (or one size/price)
+  // for everything found rather than editing each photo individually.
+  const [sharedCategory, setSharedCategory] = useState('')
+  const [sharedMaterial, setSharedMaterial] = useState('Cotton Woven')
+  const [sharedSize, setSharedSize] = useState('moderate')
+  const [sharedPrice, setSharedPrice] = useState(0)
+  const [sharedQty, setSharedQty] = useState(1)
 
   async function loadExisting() {
     const path = mode === 'stock' ? '/api/admin/stock' : '/api/admin/fabrics'
@@ -570,8 +626,29 @@ function BulkImportPanel({ secret, onAuthError, mode, onDone }) {
   }
 
   useEffect(() => { loadExisting() }, [])
+  useEffect(() => { setSharedCategory(browser.folder) }, [browser.folder])
 
-  const unpicked = browser.files.filter(f => !existingUrls.includes(f.url) && !queue.some(q => q.key === f.key))
+  function resetPreview() {
+    setPreviewed(false)
+    setSelectedKeys(new Set())
+    setResultMsg('')
+  }
+
+  // Step 1 → 2: browse the folder, filter by keyword (if any) and by
+  // "not already in the catalog", then select every match by default —
+  // same shape as ECP's "Preview Matches" step.
+  async function handlePreview() {
+    const files = await browser.browse()
+    const kw = keyword.trim().toLowerCase()
+    const matches = files.filter(f => {
+      if (existingUrls.includes(f.url)) return false
+      if (!kw) return true
+      return f.key.toLowerCase().includes(kw)
+    })
+    setSelectedKeys(new Set(matches.map(f => f.key)))
+    setPreviewed(true)
+    setResultMsg('')
+  }
 
   function toggleSelected(key) {
     setSelectedKeys(prev => {
@@ -581,67 +658,48 @@ function BulkImportPanel({ secret, onAuthError, mode, onDone }) {
     })
   }
 
-  function guessFields(file) {
+  const kw = keyword.trim().toLowerCase()
+  const matches = browser.files.filter(f => {
+    if (existingUrls.includes(f.url)) return false
+    if (!kw) return true
+    return f.key.toLowerCase().includes(kw)
+  })
+
+  function fieldsForFile(file, index) {
     const guessedName = file.key.split('/').pop().replace(/\.[^.]+$/, '').replace(/^\d+-/, '').replace(/-/g, ' ')
-    const id = guessedName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+    const id = `${guessedName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${Date.now().toString(36)}-${index}`
     if (mode === 'stock') {
       return {
-        key: file.key,
-        image_url: file.url,
-        name: guessedName,
-        id,
-        size_category: guessRtsSize(file.key),
-        price: 0,
-        qty_available: 1,
-        notes: '',
+        id, name: guessedName, image_url: file.url,
+        size_category: sharedSize, price: sharedPrice, qty_available: sharedQty, notes: '',
       }
     }
     return {
-      key: file.key,
-      image_url: file.url,
-      name: guessedName,
-      id,
-      category: browser.folder,
-      material: file.tags || '',
-      color_hex: '',
-      premium: 0,
+      id, name: guessedName, image_url: file.url,
+      category: sharedCategory || browser.folder, material: sharedMaterial, description: '', color_hex: '', premium: 0,
     }
   }
 
-  function addSelectedToQueue() {
-    const toAdd = unpicked.filter(f => selectedKeys.has(f.key)).map(guessFields)
-    setQueue(q => [...q, ...toAdd])
-    setSelectedKeys(new Set())
-  }
-
-  function updateQueueItem(key, patch) {
-    setQueue(q => q.map(item => item.key === key ? { ...item, ...patch } : item))
-  }
-
-  function removeFromQueue(key) {
-    setQueue(q => q.filter(item => item.key !== key))
-  }
-
-  async function importAll() {
-    if (queue.length === 0) return
-    const missing = mode === 'stock'
-      ? queue.find(item => !item.id || !item.name || !item.size_category)
-      : queue.find(item => !item.id || !item.name)
-    if (missing) { alert(mode === 'stock' ? 'Every queued item needs a name, ID, and size' : 'Every queued item needs a name and ID'); return }
+  // Step 2 → 3: confirm — build the batch from every still-selected
+  // match plus the shared fields, and write it in one request.
+  async function handleImport() {
+    const selected = matches.filter(f => selectedKeys.has(f.key))
+    if (selected.length === 0) return
     setImporting(true)
     setResultMsg('')
     try {
       const path = mode === 'stock' ? '/api/admin/stock/bulk' : '/api/admin/fabrics/bulk'
       const payloadKey = mode === 'stock' ? 'stocks' : 'fabrics'
+      const items = selected.map((f, i) => fieldsForFile(f, i))
       const res = await fetch(path, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ secret, [payloadKey]: queue.map(({ key, ...rest }) => rest) }),
+        body: JSON.stringify({ secret, [payloadKey]: items }),
       })
       const data = await res.json()
       if (!res.ok) { alert(data.error || 'Import failed'); setImporting(false); return }
-      setResultMsg(`✅ Imported ${data.count} item${data.count === 1 ? '' : 's'}.`)
-      setQueue([])
+      setResultMsg(`✅ Successfully bulk-imported ${data.count} item${data.count === 1 ? '' : 's'}${mode === 'fabrics' ? ` into "${sharedCategory || browser.folder}"` : ''}!`)
+      resetPreview()
       loadExisting()
       if (onDone) onDone()
     } catch (err) {
@@ -651,106 +709,82 @@ function BulkImportPanel({ secret, onAuthError, mode, onDone }) {
   }
 
   return (
-    <div>
-      <div style={styles.card}>
-        <div style={styles.label}>1. BROWSE AN R2 FOLDER</div>
-        <div style={styles.row}>
-          <select style={styles.select} value={browser.folder} onChange={e => browser.setFolder(e.target.value)}>
-            {FOLDERS.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
-          <button style={styles.btnSecondary} onClick={browser.browse}>
-            {browser.loading ? 'Loading…' : 'Browse'}
-          </button>
-        </div>
-        <input
-          style={{ ...styles.input, marginTop: 8 }}
-          placeholder="...or type the exact folder name if it's not in the list above"
-          value={browser.customFolder}
-          onChange={e => browser.setCustomFolder(e.target.value)}
-        />
-        {browser.error && <div style={styles.errorText}>{browser.error}</div>}
-        {browser.files.length > 0 && (
-          <div style={styles.smallNote}>
-            {unpicked.length} of {browser.files.length} photo{browser.files.length === 1 ? '' : 's'} not yet in the catalog or queue — click to select, then add them below.
-          </div>
-        )}
-        <div style={styles.thumbGrid}>
-          {unpicked.map(f => (
-            <div
-              key={f.key}
-              style={{ ...styles.thumbCard, outline: selectedKeys.has(f.key) ? `3px solid ${c.rose}` : 'none' }}
-              onClick={() => toggleSelected(f.key)}
-            >
-              <img src={f.url} alt="" style={styles.thumbImg} />
-              <div style={styles.thumbKey}>{f.key.split('/').pop()}</div>
-            </div>
-          ))}
-        </div>
-        {unpicked.length > 0 && (
-          <button style={styles.btnPrimary} onClick={addSelectedToQueue} disabled={selectedKeys.size === 0}>
-            + Add {selectedKeys.size || ''} Selected to Import Queue
-          </button>
-        )}
-      </div>
+    <div style={styles.card}>
+      <div style={styles.label}>{mode === 'stock' ? '🚀 BULK LOOKBOOK IMPORT' : '🎨 BULK FABRIC IMPORT'}</div>
+      <div style={styles.smallNote}>Pick a folder, optionally narrow by keyword, then preview matches before anything is written to the catalog.</div>
 
-      {queue.length > 0 && (
-        <div style={styles.card}>
-          <div style={styles.label}>2. REVIEW & EDIT ({queue.length} QUEUED)</div>
-          {queue.map(item => (
-            <div key={item.key} style={{ borderBottom: `1px solid ${c.border}`, paddingBottom: 10, marginBottom: 10 }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                <img src={item.image_url} alt="" style={{ ...styles.entryThumb, flex: 'none' }} />
-                <div style={{ flex: 1 }}>
-                  <div style={styles.row}>
-                    <input style={styles.input} placeholder="Display name" value={item.name}
-                      onChange={e => updateQueueItem(item.key, { name: e.target.value })} />
-                    <input style={styles.input} placeholder="Catalog ID" value={item.id}
-                      onChange={e => updateQueueItem(item.key, { id: e.target.value })} />
-                  </div>
-                  {mode === 'stock' ? (
-                    <>
-                      <div style={styles.row}>
-                        <select style={styles.select} value={item.size_category}
-                          onChange={e => updateQueueItem(item.key, { size_category: e.target.value })}>
-                          {RTS_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
-                        </select>
-                        <input style={styles.input} type="number" step="0.5" placeholder="Price ($)" value={item.price}
-                          onChange={e => updateQueueItem(item.key, { price: Number(e.target.value) })} />
-                      </div>
-                      <div style={styles.row}>
-                        <input style={styles.input} type="number" placeholder="Qty available" value={item.qty_available}
-                          onChange={e => updateQueueItem(item.key, { qty_available: Number(e.target.value) })} />
-                        <input style={styles.input} placeholder="Notes (optional)" value={item.notes}
-                          onChange={e => updateQueueItem(item.key, { notes: e.target.value })} />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div style={styles.row}>
-                        <input style={styles.input} placeholder="Category" value={item.category}
-                          onChange={e => updateQueueItem(item.key, { category: e.target.value })} />
-                        <input style={styles.input} placeholder="Material" value={item.material}
-                          onChange={e => updateQueueItem(item.key, { material: e.target.value })} />
-                      </div>
-                      <div style={styles.row}>
-                        <input style={styles.input} placeholder="Swatch color (hex, optional)" value={item.color_hex}
-                          onChange={e => updateQueueItem(item.key, { color_hex: e.target.value })} />
-                        <input style={styles.input} type="number" step="0.5" placeholder="Premium ($)" value={item.premium}
-                          onChange={e => updateQueueItem(item.key, { premium: Number(e.target.value) })} />
-                      </div>
-                    </>
-                  )}
-                </div>
-                <button style={styles.deleteBtn} onClick={() => removeFromQueue(item.key)}>✕</button>
-              </div>
-            </div>
-          ))}
-          <button style={styles.btnPrimary} onClick={importAll} disabled={importing}>
-            {importing ? 'Importing…' : `Import ${queue.length} Item${queue.length === 1 ? '' : 's'}`}
-          </button>
-          {resultMsg && <div style={styles.smallNote}>{resultMsg}</div>}
-        </div>
+      <div style={styles.row}>
+        <select style={styles.select} value={browser.folder} onChange={e => { browser.setFolder(e.target.value); resetPreview() }}>
+          {FOLDERS.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+      </div>
+      <input
+        style={styles.input}
+        placeholder="...or type the exact folder name if it's not in the list above"
+        value={browser.customFolder}
+        onChange={e => { browser.setCustomFolder(e.target.value); resetPreview() }}
+      />
+      <input
+        style={styles.input}
+        placeholder="Filter by keyword in filename (optional)"
+        value={keyword}
+        onChange={e => { setKeyword(e.target.value); resetPreview() }}
+      />
+      <button style={styles.btnPrimary} onClick={handlePreview} disabled={browser.loading}>
+        {browser.loading ? 'Searching…' : '🔍 Preview Matches'}
+      </button>
+      {browser.error && <div style={styles.errorText}>{browser.error}</div>}
+
+      {previewed && matches.length === 0 && (
+        <div style={styles.smallNote}>No photos found{keyword ? ` matching "${keyword}"` : ''} in "{browser.customFolder.trim() || browser.folder}" — check the folder name, or upload photos there first.</div>
       )}
+
+      {previewed && matches.length > 0 && (
+        <>
+          <div style={styles.smallNote}>
+            Found {matches.length} matching photo{matches.length === 1 ? '' : 's'} — review before importing as {mode === 'stock' ? 'ready-made stock' : 'fabric prints'}. Click a photo to leave it out.
+          </div>
+          <div style={styles.thumbGrid}>
+            {matches.map(f => (
+              <div
+                key={f.key}
+                style={{ ...styles.thumbCard, outline: selectedKeys.has(f.key) ? `3px solid ${c.rose}` : `1.5px solid ${c.border}`, opacity: selectedKeys.has(f.key) ? 1 : 0.4 }}
+                onClick={() => toggleSelected(f.key)}
+              >
+                <img src={f.url} alt="" style={styles.thumbImg} />
+                <div style={styles.thumbKey}>{f.key.split('/').pop()}</div>
+              </div>
+            ))}
+          </div>
+
+          {mode === 'stock' ? (
+            <>
+              <div style={styles.row}>
+                <select style={styles.select} value={sharedSize} onChange={e => setSharedSize(e.target.value)}>
+                  {SIZE_CATEGORIES.map(sc => <option key={sc.id} value={sc.id}>{sc.name}</option>)}
+                </select>
+                <input style={styles.input} type="number" step="0.5" placeholder="Price (S$) for all selected" value={sharedPrice}
+                  onChange={e => setSharedPrice(Number(e.target.value))} />
+              </div>
+              <input style={styles.input} type="number" placeholder="Qty available (each)" value={sharedQty}
+                onChange={e => setSharedQty(Number(e.target.value))} />
+            </>
+          ) : (
+            <div style={styles.row}>
+              <input style={styles.input} placeholder="Category for all selected" value={sharedCategory}
+                onChange={e => setSharedCategory(e.target.value)} />
+              <input style={styles.input} placeholder="Material for all selected" value={sharedMaterial}
+                onChange={e => setSharedMaterial(e.target.value)} />
+            </div>
+          )}
+
+          <button style={styles.btnPrimary} onClick={handleImport} disabled={importing || selectedKeys.size === 0}>
+            {importing ? 'Importing…' : `Import ${selectedKeys.size} Item${selectedKeys.size === 1 ? '' : 's'}`}
+          </button>
+        </>
+      )}
+
+      {resultMsg && <div style={styles.smallNote}>{resultMsg}</div>}
     </div>
   )
 }
@@ -1932,9 +1966,22 @@ const styles = {
   main: { flex: 1, minWidth: 0, padding: '24px 28px', overflow: 'auto' },
   mainTopRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 18 },
   pageTitle: { fontSize: 26, fontWeight: 500, color: c.text, fontFamily: "Georgia, 'Times New Roman', serif" },
-  pillRow: { display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' },
+  pillRow: { display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' },
   pill: { padding: '7px 14px', borderRadius: 999, border: `1.5px solid ${c.border}`, background: c.white, color: c.text, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
   pillActive: { background: c.rose, color: c.white, border: `1.5px solid ${c.rose}` },
+
+  // Mobile shell — a fully separate stacked layout (not a CSS reflow of
+  // the desktop one), matching ECP's actual mobile pattern: Back Office
+  // row, Shop/Settings as a full-width pill row, page title + subnav
+  // pills, content, then plain-text links at the very bottom.
+  mobileShell: { minHeight: '100vh', background: c.bg, fontFamily: "'Inter', sans-serif", color: c.text, display: 'flex', flexDirection: 'column' },
+  mobileTopRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: `1.5px solid ${c.border}` },
+  mobileBackOffice: { fontSize: 11, fontWeight: 700, color: c.muted, letterSpacing: '0.08em' },
+  mobileSectionPills: { display: 'flex', gap: 8, padding: '12px 16px' },
+  mobileSectionPill: { flex: 1, padding: '10px 0', borderRadius: 999, border: `1.5px solid ${c.border}`, background: c.white, color: c.muted, fontSize: 13, fontWeight: 700, cursor: 'pointer', textAlign: 'center' },
+  mobileSectionPillActive: { background: c.rose, color: c.white, border: `1.5px solid ${c.rose}` },
+  mobileContent: { flex: 1, padding: '4px 16px 16px' },
+  mobileFooterLinks: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '20px 16px 28px', borderTop: `1.5px solid ${c.border}`, marginTop: 12 },
 
   // Table primitives — used by Sizes/Absorbency/Shapes to match ECP's
   // "Pricing & Sizes" table layout instead of the old card list.
