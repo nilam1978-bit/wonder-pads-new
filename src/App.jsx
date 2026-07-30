@@ -34,14 +34,21 @@ export default function App() {
     </div>
   )
 
- return (
+ if (path === 'admin') {
+    // Admin panel has its own full-width shell (sidebar + tables) — it
+    // must NOT be nested inside the 480px customer-site wrapper below,
+    // which was squeezing the desktop layout and breaking the mobile
+    // media query (the actual viewport was fine, but content inside a
+    // narrower ancestor was overflowing sideways instead of reflowing).
+    return <AdminCatalog onBack={() => setPath('home')} />
+  }
+
+  return (
     <div style={styles.app}>
       {path === 'studio'
         ? <DesignStudio config={config} onBack={() => setPath('home')} />
         : path === 'faq'
         ? <CareFAQ onBack={() => setPath('home')} />
-        : path === 'admin'
-        ? <AdminCatalog onBack={() => setPath('home')} />
         : <>
             <Header config={config} onNav={setPath} />
             {path === 'home' && <Landing config={config} onNav={setPath} />}
@@ -93,6 +100,25 @@ function Landing({ config, onNav }) {
         {['🌿 Organic options', '✂ Handmade to order', '💬 WhatsApp ordering', '🇸🇬 Ships SG + MY'].map(t => (
           <div key={t} style={styles.trustItem}>{t}</div>
         ))}
+      </section>
+
+      {/* Why Wonder Pads */}
+      <section style={styles.section}>
+        <div style={styles.sectionLabel}>WHY WONDER PADS</div>
+        <h2 style={styles.sectionTitle}>Made with you in mind</h2>
+        <div style={styles.whyGrid}>
+          {[
+            { icon: '🌿', t: 'No harsh chemicals', d: 'Free from chlorine, synthetic fragrances, and plastics common in disposables.' },
+            { icon: '✂', t: 'Made just for you', d: "Every pad is handmade to order in the fabric and size you pick — nothing off a shelf." },
+            { icon: '🌎', t: 'Kinder to the planet', d: 'One reusable pad replaces hundreds of disposables over its lifetime.' },
+          ].map(w => (
+            <div key={w.t} style={styles.whyCard}>
+              <div style={styles.whyIcon}>{w.icon}</div>
+              <div style={styles.whyTitle}>{w.t}</div>
+              <div style={styles.whyDesc}>{w.d}</div>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* First time tip */}
